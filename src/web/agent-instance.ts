@@ -110,19 +110,35 @@ export function createAgentInstance(
   ticket: unknown,
   opts: { project?: string | null; workspace?: string | null; reservedIds?: readonly string[] } = {},
 ): Result<{ name: string; dir: string; created: boolean }> {
+  // A template is a real agent, and real agent names are always in sanitized form. Anything else (a path, a name with
+  // dots or capitals) is refused here, as an error value: safeJoin would only throw on it.
+  if (typeof template !== 'string' || template === '' || sanitizeAgentName(template) !== template) {
+    return { ok: false, error: 'invalid template name' }
+  }
   const name = instanceName(template, ticket)
   if (!name) return { ok: false, error: 'invalid ticket id or template name' }
   if ((opts.reservedIds ?? []).includes(name) || (opts.reservedIds ?? []).includes(template)) {
     return { ok: false, error: 'the name is a reserved agent id' }
   }
 
-  const tplDir = safeJoin(base, template)
+  let tplDir: string
+  let dir: string
+  try {
+    tplDir = safeJoin(base, template)
+    dir = safeJoin(base, name)
+  } catch {
+    return { ok: false, error: 'invalid agent name' }
+  }
   if (!existsSync(join(tplDir, 'agent-config.json')) || !existsSync(join(tplDir, 'CLAUDE.md'))) {
     return { ok: false, error: `template "${template}" does not exist or is incomplete` }
   }
   if (readInstanceOf(tplDir)) return { ok: false, error: 'an instance cannot be a template' }
 
-  const dir = safeJoin(base, name)
+  // The template's config carries the model, the security profile and the team: an instance built without it would
+  // run on defaults, so an unreadable config is an error, checked BEFORE anything is created.
+  const tplConfig = readJson(join(tplDir, 'agent-config.json'))
+  if (!tplConfig) return { ok: false, error: `the config of template "${template}" is not a readable JSON object` }
+
   const marker: InstanceOf = {
     template, ticket: ticketSlug(ticket) as string, project: opts.project ?? null, workspace: opts.workspace ?? null,
   }
@@ -166,7 +182,7 @@ export function createAgentInstance(
     }
 
     // the config: the template's, without anything machine-specific, marked as an instance
-    const cfg = { ...(readJson(join(tplDir, 'agent-config.json')) ?? {}) }
+    const cfg = { ...tplConfig }
     for (const k of MACHINE_SPECIFIC_CONFIG_KEYS) delete cfg[k]
     const tplTeam = (cfg.team && typeof cfg.team === 'object' ? cfg.team : {}) as { reportsTo?: unknown; trustFrom?: unknown }
     cfg.team = {

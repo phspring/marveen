@@ -148,8 +148,29 @@ describe('createAgentInstance', () => {
     expect(createAgentInstance(base, 'cpp-developer', 'T-3', { reservedIds: ['cpp-developer'] }).ok).toBe(false)
   })
 
-  it('refuses a path-traversal template name', () => {
-    expect(() => createAgentInstance(base, '../outside', 'T-1')).toThrow()
+  it('returns an error, and never throws, for a template name that is not a real agent name', () => {
+    mkdirSync(join(base, '..', 'inst-outside'), { recursive: true })
+    for (const bad of ['../outside', '../inst-outside', '..', '.', 'a/b', '/abs', 'Cpp Developer', 'CPP-DEVELOPER', '']) {
+      const r = createAgentInstance(base, bad, 'T-1')
+      expect(r.ok, bad).toBe(false)
+    }
+    // nothing was created next to the agents directory
+    expect(existsSync(join(base, '..', 'inst-outside', 'agent-config.json'))).toBe(false)
+    rmSync(join(base, '..', 'inst-outside'), { recursive: true, force: true })
+  })
+
+  it('refuses a template whose agent-config.json is unreadable, and leaves no half-built instance behind', () => {
+    const tpl = makeTemplate()
+    for (const broken of ['{ not json', '[]', '"text"', '']) {
+      writeFileSync(join(tpl, 'agent-config.json'), broken)
+      const r = createAgentInstance(base, 'cpp-developer', 'T-1')
+      expect(r.ok, JSON.stringify(broken)).toBe(false)
+      expect(existsSync(join(base, instanceName('cpp-developer', 'T-1')!))).toBe(false)
+    }
+  })
+
+  it('a removal of a traversal name is also an error, not a throw', () => {
+    expect(removeAgentInstance(base, '../outside', { isRunning: () => false }).ok).toBe(false)
   })
 
   it('without a workspace the section says there is none', () => {
