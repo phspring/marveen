@@ -24,7 +24,7 @@ export function readProjectRegistry(path: string = PROJECTS_PATH): ProjectRegist
     raw = JSON.parse(text)
   } catch (err) {
     logger.warn({ err, path }, 'projects: registry is not valid JSON, treated as empty')
-    return { projects: [], problems: ['store/projects.json is not valid JSON'] }
+    return { projects: [], problems: [`${path} is not valid JSON`] }
   }
   const registry = normalizeProjectRegistry(raw)
   for (const line of registry.problems) logger.warn({ path }, `projects: ${line}`)
