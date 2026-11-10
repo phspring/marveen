@@ -30,7 +30,12 @@ export interface ProjectConfig {
   workspaceRoot: string | null
   /** At most this many tickets of the project hold a workspace at once. */
   maxParallel: number
+  /** What a ticket does when another active ticket of the project may touch the same files: wait for it to close,
+   *  or stack its branch on the other ticket's branch. */
+  onOverlap: OverlapPolicy
 }
+
+export type OverlapPolicy = 'wait' | 'stack'
 
 export interface ProjectRegistry {
   projects: ProjectConfig[]
@@ -139,9 +144,15 @@ export function normalizeProjectRegistry(raw: unknown): ProjectRegistry {
       else problems.push(`project "${name}": maxParallel must be an integer 1..${MAX_PARALLEL_LIMIT}, using ${DEFAULT_MAX_PARALLEL}`)
     }
 
+    let onOverlap: OverlapPolicy = 'wait'
+    if (e.onOverlap === 'stack') onOverlap = 'stack'
+    else if (e.onOverlap !== undefined && e.onOverlap !== 'wait') {
+      problems.push(`project "${name}": unknown onOverlap, using wait`)
+    }
+
     seenNames.add(name.toLowerCase())
     for (const k of jiraKeys) seenKeys.set(k, name)
-    out.push({ name, repoPath, repoKind, mode, baseBranch, jiraKeys, workspaceRoot, maxParallel })
+    out.push({ name, repoPath, repoKind, mode, baseBranch, jiraKeys, workspaceRoot, maxParallel, onOverlap })
   }
   return { projects: out, problems }
 }

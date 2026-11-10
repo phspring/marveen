@@ -41,6 +41,7 @@ izolációt véletlenül.
 | `jiraKeys` | Jira-kulcs előtagok, pl. `["TVR"]`. Egy kulcs egy projekté. |
 | `workspaceRoot` | Abszolút, a repón **kívül**. `worktree` módhoz kötelező. |
 | `maxParallel` | Egyszerre legfeljebb ennyi jegy-környezet (1..32, alapérték 2) |
+| `onOverlap` | Mi legyen, ha egy másik aktív jegy ugyanazokat a fájlokat érintheti: `wait` (alapérték, várakozik) vagy `stack` (a másik jegy ágára épül) |
 
 Amit a rendszer elutasít vagy visszaminősít (és egy sor az `problems` listába kerül): relatív `repoPath`; olyan
 `workspaceRoot`, amely a repóban van vagy a repót tartalmazza; `worktree` mód `workspaceRoot` nélkül (marad `shared`);
@@ -60,6 +61,23 @@ Rögzített sorrendben (`resolveProject`):
 3. **A könyvtár:** az a regisztrált repó, amelyben az ágens dolgozik (a leghosszabb `repoPath` nyer).
 
 Nincs találat: marad a mai közös mód.
+
+### A döntés: mi legyen egy új jeggyel (`src/workspace-decision.ts`)
+
+Tiszta függvény (`decideWorkspace`): megkapja a projektet, a jegyet, a jegy által deklarált fájlkört (`scope`, repó-relatív
+előtagok) és azokat a jegyeket, amelyek már tartanak workspace-t. Nem hoz létre és nem indít semmit, a hívó
+tesz a válasz szerint. Szabályok, sorrendben:
+
+1. Ha a projekt nem izolál (`shared`, vagy `worktree` `workspaceRoot` nélkül): `shared`, a mai út.
+2. Ha a jegynek már van workspace-e: `existing`. Újraküldésnél soha nem lesz második.
+3. Ha a projekt elérte a `maxParallel`-t: `queued` (`capacity`), a válasz megnevezi, ki foglalja a helyeket.
+4. Ha nincs más aktív jegy: `new`, a `baseBranch`-ről.
+5. Ha a jegy fájlköre **bizonyíthatóan** más, mint az összes aktív jegyé: `new` (párhuzamos).
+6. Különben, vagyis átfedésnél **vagy ha nem ismert**: a projekt `onOverlap` szabálya szerint `queued` (`overlap`)
+   vagy `stacked` az utolsó ütköző jegy ágán.
+
+A hiányzó fájlkör átfedésnek számít. A biztonságos oldal sosem a "párhuzamos". A fájlkört a vezető tölti ki a kártyán
+(ez a mező a 4. lépésben jön); a döntés addig is helyesen működik, mert a nem ismertet átfedésnek veszi.
 
 ### A workspace
 
@@ -85,7 +103,9 @@ Nincs találat: marad a mai közös mód.
 
 ## Mi van még hátra
 
-3. A kanban-dispatch és az ágens-indító használja (példány-mappa, `--continue` nélkül, az indító-üzenet viszi az utat).
+3. A kanban-dispatch és az ágens-indító használja. Ebből a döntési fa (`decideWorkspace`) már kész. Hátra van a bekötés: a
+   dispatch a döntés szerint hoz létre workspace-t, és az ágens-indító példány-mappát ad (`--continue` nélkül, az
+   indító-üzenet viszi az utat).
 4. Az `external_ref` mező a kártyán.
 5. Skill-könyvtár és hozzárendelések.
 6. A `store/projects.json` védelme a gate-ben, utána a setup/teardown parancsok.
