@@ -79,6 +79,25 @@ tesz a válasz szerint. Szabályok, sorrendben:
 A hiányzó fájlkör átfedésnek számít. A biztonságos oldal sosem a "párhuzamos". A fájlkört a vezető tölti ki a kártyán
 (ez a mező a 4. lépésben jön); a döntés addig is helyesen működik, mert a nem ismertet átfedésnek veszi.
 
+### A jegy-példány (`src/web/agent-instance.ts`)
+
+A jegyen dolgozó ágens egy **ideiglenes, valódi ágens**, amely a sablon ágensből készül: `agents/<sablon>-<jegy>/`. Azért valódi
+ágens, mert az indító, a router, a dispatch, a státusz és a dashboard mind ágens-névre épül (az `agentSessionName()` kb. 34,
+az `isAgentRunning()` kb. 42 helyen szerepel). Így egyik sem változik, és a kártya `assignee`-je egyszerűen a példány neve.
+
+- **Név:** `<sablon>-<jegy>`, a `sanitizeAgentName`-nek is megfelelő alakban (kisbetű, egyetlen kötőjel, legfeljebb 50
+  karakter). Ami levágódna, abban a (sablon, jegy) pár rövid hash-e is benne van, így két hosszú jegy nem ütközik.
+- **Másolat:** `CLAUDE.md`, `SOUL.md`, `.mcp.json`, `.claude/settings.json`, `.claude/agents/*`. Az indító ezeket **minden
+  indításnál helyben átírja**, ezért symlink a sablonba írna át.
+- **Symlink:** a sablon saját `.claude/skills/*` bejegyzései. Egy skill egy forrásból él.
+- **Üres:** a `memory/`. A példány nem ír a sablon memóriájába.
+- **Config:** a sablonéból, gép-specifikus mezők nélkül (`remoteHost`, `remoteWorkdir`, `claudeConfigDir`, `oauthTokenFile`).
+  `team`: tag, a sablon vezetője alatt, nem delegál. `instanceOf` jelöli (sablon, jegy, projekt, workspace).
+- **`CLAUDE.md`:** egy jelölt blokk (`INSTANCE-BEGIN/END`) a jegyet és a workspace **literális abszolút útját** írja bele, és
+  hogy a példány nem commitol.
+- **Törlés:** csak példányt töröl (egy elírt név sosem törölhet valódi ágenst), és csak ha a session már nem fut.
+  A symlinkeket linkként távolítja el, a sablon skilljei épek maradnak.
+
 ### A workspace
 
 | Repó | Módszer | Miért |
