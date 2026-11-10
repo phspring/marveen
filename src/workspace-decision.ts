@@ -43,24 +43,40 @@ export type WorkspaceDecision =
   | { action: 'stacked'; onTicket: string; baseBranch: string }
   | { action: 'queued'; reason: 'capacity' | 'overlap'; waitingFor: string[] }
 
+/** The scope entry that means "the whole repository". */
+export const SCOPE_ROOT = '.'
+
+/**
+ * One scope entry in its canonical form, or null when it is not a repo-relative path: `/`-separated, no empty and no
+ * "." segments (so `src/./games`, `src//games` and `./src/games/` are all `src/games`), no ".." anywhere, and `.`,
+ * `./` and the like are the repository root. An absolute path, or one that could leave the repo, is not usable.
+ */
+function canonicalScopeEntry(raw: string): string | null {
+  const t = raw.trim().replace(/\\/g, '/')
+  if (t === '' || t.startsWith('/')) return null
+  const segments = t.split('/').filter((s) => s !== '' && s !== '.')
+  if (segments.includes('..')) return null
+  return segments.length === 0 ? SCOPE_ROOT : segments.join('/')
+}
+
 /** Normalise a declared scope to clean repo-relative prefixes, or null when nothing usable was declared. */
 export function normalizeScope(scope: unknown): string[] | null {
   if (!Array.isArray(scope)) return null
   const out: string[] = []
   for (const s of scope) {
     if (typeof s !== 'string' || s.includes('\u0000')) continue
-    const t = s.trim().replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '')
-    // absolute or escaping paths are not repo-relative: ignore them (and so fall back to "unknown")
-    if (t === '' || t.startsWith('/') || t.split('/').includes('..')) continue
-    if (!out.includes(t)) out.push(t)
+    // not repo-relative: ignored here (and so "unknown" if nothing else is left); the API refuses such an entry
+    const c = canonicalScopeEntry(s)
+    if (c !== null && !out.includes(c)) out.push(c)
   }
   return out.length > 0 ? out : null
 }
 
 // Scope prefixes are always '/'-separated (normalizeScope), whatever the host OS: node:path's separator would be
-// wrong on Windows, so the prefix test is done on '/' here and not through pathInside().
+// wrong on Windows, so the prefix test is done on '/' here and not through pathInside(). The repository root contains
+// every path, so a scope of "." overlaps everything.
 function prefixOf(inner: string, outer: string): boolean {
-  return inner === outer || inner.startsWith(`${outer}/`)
+  return outer === SCOPE_ROOT || inner === outer || inner.startsWith(`${outer}/`)
 }
 
 /** Two declared scopes overlap when some prefix of one is the same as, or contains, a prefix of the other. */
