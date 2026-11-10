@@ -16,7 +16,7 @@
 
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { isSafeBranchName, isolatesTickets, pathInside, type ProjectConfig } from '../projects.js'
@@ -131,27 +131,76 @@ function readMarker(markerPath: string): WorkspaceMarker | null {
   return null
 }
 
-async function dropPartial(plan: WorkspacePlan, git: GitRunner, createdBranch: boolean): Promise<void> {
+// One operation at a time per workspace path. The dashboard serves requests concurrently, and two creates (or a
+// create and a remove) of the same ticket would otherwise race: the loser's cleanup deleted the winner's checkout.
+// A chain per key, so different tickets never wait for each other. Single process by design: the dashboard is the
+// only caller.
+const chains = new Map<string, Promise<unknown>>()
+
+function serialised<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const prev = chains.get(key) ?? Promise.resolve()
+  const run = prev.then(fn, fn)
+  const tail = run.catch(() => undefined)
+  chains.set(key, tail)
+  void tail.then(() => { if (chains.get(key) === tail) chains.delete(key) })
+  return run
+}
+
+/**
+ * A plan is data a caller hands in, so re-check what planWorkspace guarantees before anything touches the disk or
+ * runs git: the path stays strictly inside the project directory, the marker is outside the working tree, and the
+ * ticket, branches and repo path are the safe shapes. Null when the plan is sound.
+ */
+export function planProblem(plan: WorkspacePlan): string | null {
+  if (plan.kind !== 'worktree' && plan.kind !== 'clone') return 'unknown workspace kind'
+  if (ticketSlug(plan.ticket) !== plan.ticket) return 'invalid ticket id'
+  if (!isSafeBranchName(plan.branch) || !isSafeBranchName(plan.baseBranch) || plan.branch === plan.baseBranch) return 'invalid branch name'
+  if (!isAbsolute(plan.repoPath) || plan.repoPath.includes('\u0000')) return 'invalid repo path'
+  if (!isAbsolute(plan.projectDir) || !isAbsolute(plan.path) || !isAbsolute(plan.markerPath)) return 'workspace paths must be absolute'
+  if (!pathInside(plan.path, plan.projectDir) || plan.path === plan.projectDir) return 'workspace path escapes its project directory'
+  if (pathInside(plan.markerPath, plan.path) || pathInside(plan.path, plan.markerPath)) return 'the marker must be outside the working tree'
+  if (pathInside(plan.path, plan.repoPath) || pathInside(plan.repoPath, plan.path)) return 'the workspace and the repo must not contain each other'
+  return null
+}
+
+/** The marker is the one thing that says "this module made that checkout": it must describe exactly this plan. */
+function markerMatches(m: WorkspaceMarker, plan: WorkspacePlan): boolean {
+  return m.path === plan.path && m.kind === plan.kind && m.repoPath === plan.repoPath
+    && m.branch === plan.branch && m.baseBranch === plan.baseBranch && m.project === plan.project && m.ticket === plan.ticket
+}
+
+/** Undo only what THIS call did (the branch it created, the worktree or clone it started), never a bare path. */
+async function dropPartial(plan: WorkspacePlan, git: GitRunner, done: { worktree: boolean; clone: boolean; branch: boolean }): Promise<void> {
   try {
-    if (plan.kind === 'worktree') {
+    if (done.worktree) {
       try { await git(['-C', plan.repoPath, 'worktree', 'remove', '--force', plan.path]) } catch { /* may not exist */ }
       try { await git(['-C', plan.repoPath, 'worktree', 'prune']) } catch { /* best effort */ }
-      if (createdBranch) { try { await git(['-C', plan.repoPath, 'branch', '-D', plan.branch]) } catch { /* may not exist */ } }
     }
-    if (existsSync(plan.path) && pathInside(plan.path, plan.projectDir) && plan.path !== plan.projectDir) {
+    if (done.branch) { try { await git(['-C', plan.repoPath, 'branch', '-D', plan.branch]) } catch { /* may not exist */ } }
+    if ((done.clone || done.worktree) && existsSync(plan.path) && pathInside(plan.path, plan.projectDir) && plan.path !== plan.projectDir) {
       rmSync(plan.path, { recursive: true, force: true })
     }
   } catch { /* cleanup is best effort, the caller already has the original error */ }
 }
 
 /** Create the workspace. Idempotent: an existing workspace this module made for the same ticket is returned as is. */
-export async function createWorkspace(plan: WorkspacePlan, git: GitRunner = defaultGit): Promise<Result<{ created: boolean; path: string }>> {
+export function createWorkspace(plan: WorkspacePlan, git: GitRunner = defaultGit): Promise<Result<{ created: boolean; path: string }>> {
+  const bad = planProblem(plan)
+  if (bad) return Promise.resolve({ ok: false, error: bad })
+  return serialised(plan.path, () => createWorkspaceLocked(plan, git))
+}
+
+async function createWorkspaceLocked(plan: WorkspacePlan, git: GitRunner): Promise<Result<{ created: boolean; path: string }>> {
   const existing = readMarker(plan.markerPath)
-  if (existing && existsSync(plan.path) && existing.path === plan.path) return { ok: true, created: false, path: plan.path }
+  if (existing && existsSync(plan.path)) {
+    return markerMatches(existing, plan)
+      ? { ok: true, created: false, path: plan.path }
+      : { ok: false, error: 'a workspace marker exists for this path but describes a different workspace, nothing changed' }
+  }
   if (existsSync(plan.path)) return { ok: false, error: 'the workspace path already exists and was not created by this module' }
 
   mkdirSync(dirname(plan.path), { recursive: true })
-  let createdBranch = false
+  const done = { worktree: false, clone: false, branch: false }
   try {
     if (plan.kind === 'worktree') {
       try { await git(['-C', plan.repoPath, 'fetch', '--quiet', 'origin']) } catch { /* offline: use what is local */ }
@@ -163,12 +212,15 @@ export async function createWorkspace(plan: WorkspacePlan, git: GitRunner = defa
       let branchTaken = true
       try { await git(['-C', plan.repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${plan.branch}`]) } catch { branchTaken = false }
       if (branchTaken) return { ok: false, error: `branch ${plan.branch} already exists in the repo` }
+      done.worktree = true
+      done.branch = true
       await git(['-C', plan.repoPath, 'worktree', 'add', '--quiet', '--no-track', '-b', plan.branch, plan.path, `origin/${plan.baseBranch}`])
-      createdBranch = true
     } else {
       const url = (await git(['-C', plan.repoPath, 'remote', 'get-url', 'origin'])).trim()
       if (!url) return { ok: false, error: 'the repo has no origin remote' }
-      await git(['clone', '--quiet', '--reference', plan.repoPath, '--dissociate', '-b', plan.baseBranch, url, plan.path])
+      done.clone = true
+      // "--": the URL comes from the repo's config and must never be read as an option (--upload-pack=...)
+      await git(['clone', '--quiet', '--reference', plan.repoPath, '--dissociate', '-b', plan.baseBranch, '--', url, plan.path])
       await git(['-C', plan.path, 'checkout', '--quiet', '-b', plan.branch])
     }
     const marker: WorkspaceMarker = {
@@ -179,7 +231,7 @@ export async function createWorkspace(plan: WorkspacePlan, git: GitRunner = defa
     atomicWriteFileSync(plan.markerPath, JSON.stringify(marker, null, 2))
     return { ok: true, created: true, path: plan.path }
   } catch (err) {
-    await dropPartial(plan, git, createdBranch)
+    await dropPartial(plan, git, done)
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
@@ -199,11 +251,16 @@ export async function inspectWorkspace(plan: WorkspacePlan, git: GitRunner = def
 }
 
 /** Remove a workspace this module created. The branch is kept: its commits may still be wanted. */
-export async function removeWorkspace(plan: WorkspacePlan, opts: { force?: boolean } = {}, git: GitRunner = defaultGit): Promise<Result<{ removed: boolean }>> {
+export function removeWorkspace(plan: WorkspacePlan, opts: { force?: boolean } = {}, git: GitRunner = defaultGit): Promise<Result<{ removed: boolean }>> {
+  const bad = planProblem(plan)
+  if (bad) return Promise.resolve({ ok: false, error: bad })
+  return serialised(plan.path, () => removeWorkspaceLocked(plan, opts, git))
+}
+
+async function removeWorkspaceLocked(plan: WorkspacePlan, opts: { force?: boolean }, git: GitRunner): Promise<Result<{ removed: boolean }>> {
   const marker = readMarker(plan.markerPath)
   if (!marker) return { ok: true, removed: false }
-  if (marker.path !== plan.path || marker.kind !== plan.kind) return { ok: false, error: 'the marker does not match this workspace, nothing removed' }
-  if (!pathInside(plan.path, plan.projectDir) || plan.path === plan.projectDir) return { ok: false, error: 'workspace path escapes its root' }
+  if (!markerMatches(marker, plan)) return { ok: false, error: 'the marker does not match this workspace, nothing removed' }
 
   try {
     if (!opts.force) {
@@ -237,7 +294,12 @@ export function listWorkspaces(p: ProjectConfig): WorkspaceMarker[] {
     const m = readMarker(join(dir, n))
     if (m) out.push(m)
   }
-  return out
+  // Oldest first, ties by ticket: readdir order is whatever the filesystem gives, and callers (the dispatch decision)
+  // must not depend on it.
+  return out.sort((a, b) => {
+    const d = (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0)
+    return d !== 0 ? d : a.ticket.localeCompare(b.ticket)
+  })
 }
 
 /** Workspaces whose ticket is no longer active. Reported, never deleted: that is a person's call. */

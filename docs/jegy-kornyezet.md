@@ -74,10 +74,16 @@ tesz a válasz szerint. Szabályok, sorrendben:
 4. Ha nincs más aktív jegy: `new`, a `baseBranch`-ről.
 5. Ha a jegy fájlköre **bizonyíthatóan** más, mint az összes aktív jegyé: `new` (párhuzamos).
 6. Különben, vagyis átfedésnél **vagy ha nem ismert**: a projekt `onOverlap` szabálya szerint `queued` (`overlap`)
-   vagy `stacked` az utolsó ütköző jegy ágán.
+   vagy `stacked` a **legújabb** ütköző jegy ágán. Az épülés csak akkor megy, ha az az ág tényleg tartalmazza az összes
+   többi ütköző jegy munkáját, vagyis ha azok egy láncot alkotnak (mindegyik az előzőből indult, a `baseBranch`-e az előző
+   jegy ága). Két egymástól függetlenül indult ütköző jegy nem fér bele egy ágba, ilyenkor a jegy vár.
+
+A "legújabb" a workspace `createdAt` ideje alapján dől el, sosem a hívó által megadott sorrend szerint (a
+`listWorkspaces` is így, régebbitől újabbig rendez). A fájlkör előtagjai mindig `/` jelölésűek, az összehasonlítás
+nem függ az operációs rendszer útvonal-elválasztójától.
 
 A hiányzó fájlkör átfedésnek számít. A biztonságos oldal sosem a "párhuzamos". A fájlkört a vezető tölti ki a kártyán
-(ez a mező a 4. lépésben jön); a döntés addig is helyesen működik, mert a nem ismertet átfedésnek veszi.
+(ez a mező a 4. lépésben jön); a döntés addig is helyesen működik, mert az ismeretlen fájlkört átfedésnek veszi.
 
 ### A jegy-példány (`src/web/agent-instance.ts`)
 

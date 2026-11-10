@@ -8,17 +8,24 @@
 //   3. the project is at its `maxParallel` -> `queued` (capacity);
 //   4. nobody else is active -> `new`;
 //   5. others are active and every one of them provably touches other files -> `new` (parallel);
-//   6. otherwise (overlap, or not known) -> by the project's policy: `queued` (overlap) or `stacked` on the other
-//      ticket's branch. Unknown counts as overlap: the safe side is never "parallel".
+//   6. otherwise (overlap, or not known) -> by the project's policy: `queued` (overlap), or `stacked` on the newest
+//      conflicting ticket's branch when that branch contains the work of every other conflicting ticket (they form
+//      one chain); independent conflicting tickets cannot be contained in one branch, so then it queues.
+//      Unknown counts as overlap: the safe side is never "parallel".
 
-import { isolatesTickets, pathInside, type ProjectConfig } from './projects.js'
+import { isolatesTickets, type ProjectConfig } from './projects.js'
 
 /** A ticket that holds a workspace in the project right now. */
 export interface ActiveTicket {
   ticket: string
   /** Repo-relative path prefixes the ticket declared. Null or empty: not declared, i.e. unknown. */
   scope: string[] | null
+  /** The ticket's own branch. */
   branch: string
+  /** The branch it was cut from: the project's base branch, or another ticket's branch when it is stacked. */
+  baseBranch: string
+  /** ISO time the workspace was created. Decides which ticket is the newest; the input order never does. */
+  createdAt: string
 }
 
 export interface DecideInput {
@@ -50,12 +57,39 @@ export function normalizeScope(scope: unknown): string[] | null {
   return out.length > 0 ? out : null
 }
 
+// Scope prefixes are always '/'-separated (normalizeScope), whatever the host OS: node:path's separator would be
+// wrong on Windows, so the prefix test is done on '/' here and not through pathInside().
+function prefixOf(inner: string, outer: string): boolean {
+  return inner === outer || inner.startsWith(`${outer}/`)
+}
+
 /** Two declared scopes overlap when some prefix of one is the same as, or contains, a prefix of the other. */
 export function scopesOverlap(a: string[] | null, b: string[] | null): boolean {
   const sa = normalizeScope(a)
   const sb = normalizeScope(b)
   if (!sa || !sb) return true // unknown on either side
-  return sa.some((x) => sb.some((y) => pathInside(x, y) || pathInside(y, x)))
+  return sa.some((x) => sb.some((y) => prefixOf(x, y) || prefixOf(y, x)))
+}
+
+/** The tickets whose work `t` already contains: the ones it is stacked on, directly or through a chain. */
+function ancestorsOf(t: ActiveTicket, all: ActiveTicket[]): Set<string> {
+  const seen = new Set<string>()
+  let cur: ActiveTicket | undefined = t
+  while (cur) {
+    const parent: ActiveTicket | undefined = all.find((x) => x.branch === cur!.baseBranch && x.ticket !== cur!.ticket)
+    if (!parent || seen.has(parent.ticket)) break
+    seen.add(parent.ticket)
+    cur = parent
+  }
+  return seen
+}
+
+/** Oldest first; ties broken by ticket id so the order never depends on how the caller listed them. */
+function byAge(a: ActiveTicket, b: ActiveTicket): number {
+  const ta = Date.parse(a.createdAt)
+  const tb = Date.parse(b.createdAt)
+  const d = (Number.isNaN(ta) ? 0 : ta) - (Number.isNaN(tb) ? 0 : tb)
+  return d !== 0 ? d : a.ticket.localeCompare(b.ticket)
 }
 
 export function decideWorkspace(input: DecideInput): WorkspaceDecision {
@@ -66,7 +100,7 @@ export function decideWorkspace(input: DecideInput): WorkspaceDecision {
   if (others.length !== input.active.length) return { action: 'existing' }
 
   if (input.active.length >= project.maxParallel) {
-    return { action: 'queued', reason: 'capacity', waitingFor: input.active.map((t) => t.ticket) }
+    return { action: 'queued', reason: 'capacity', waitingFor: [...input.active].sort(byAge).map((t) => t.ticket) }
   }
 
   if (others.length === 0) return { action: 'new', baseBranch: project.baseBranch }
@@ -74,10 +108,16 @@ export function decideWorkspace(input: DecideInput): WorkspaceDecision {
   const conflicting = others.filter((t) => scopesOverlap(input.scope, t.scope))
   if (conflicting.length === 0) return { action: 'new', baseBranch: project.baseBranch }
 
+  const oldestFirst = [...conflicting].sort(byAge)
   if (project.onOverlap === 'stack') {
-    // Stack on the most recently listed conflicting ticket: its branch already contains the earlier ones' work.
-    const last = conflicting[conflicting.length - 1]
-    return { action: 'stacked', onTicket: last.ticket, baseBranch: last.branch }
+    // Stack on the newest conflicting ticket, but only when its branch really contains the work of every other
+    // conflicting ticket, i.e. they form one chain (each stacked on the one before). Two conflicting tickets that
+    // were cut independently cannot both be contained in one branch, so then the ticket waits instead.
+    const newest = oldestFirst[oldestFirst.length - 1]
+    const contained = ancestorsOf(newest, input.active)
+    if (oldestFirst.every((t) => t === newest || contained.has(t.ticket))) {
+      return { action: 'stacked', onTicket: newest.ticket, baseBranch: newest.branch }
+    }
   }
-  return { action: 'queued', reason: 'overlap', waitingFor: conflicting.map((t) => t.ticket) }
+  return { action: 'queued', reason: 'overlap', waitingFor: oldestFirst.map((t) => t.ticket) }
 }

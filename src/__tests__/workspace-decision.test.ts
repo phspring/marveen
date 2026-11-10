@@ -6,7 +6,11 @@ function project(extra: Record<string, unknown> = {}): ProjectConfig {
   const r = normalizeProjectRegistry({ projects: { p: { repoPath: '/r/app', mode: 'worktree', workspaceRoot: '/ws', maxParallel: 3, ...extra } } })
   return r.projects[0]
 }
-const at = (ticket: string, scope: string[] | null = null): ActiveTicket => ({ ticket, scope, branch: `feature/${ticket}` })
+// Each call is one second newer than the one before, so a list built left to right is oldest first.
+let tick = 0
+const stamp = () => new Date(Date.UTC(2026, 0, 1, 0, 0, ++tick)).toISOString()
+const at = (ticket: string, scope: string[] | null = null, over: Partial<ActiveTicket> = {}): ActiveTicket =>
+  ({ ticket, scope, branch: `feature/${ticket}`, baseBranch: 'develop', createdAt: stamp(), ...over })
 
 describe('normalizeScope', () => {
   it('cleans prefixes and drops anything that is not repo-relative', () => {
@@ -83,10 +87,61 @@ describe('decideWorkspace', () => {
     expect(d).toEqual({ action: 'queued', reason: 'overlap', waitingFor: ['T-2'] })
   })
 
-  it('6d. with onOverlap "stack" the ticket builds on the last conflicting ticket\'s branch', () => {
+  it('6d. with onOverlap "stack" a single conflicting ticket is built on directly', () => {
     const p = project({ onOverlap: 'stack', maxParallel: 5 })
-    const d = decideWorkspace({ project: p, ticket: 'T-3', scope: ['src'], active: [at('T-1', ['src/a']), at('T-2', ['docs']), at('T-4', ['src/b'])] })
-    expect(d).toEqual({ action: 'stacked', onTicket: 'T-4', baseBranch: 'feature/T-4' })
+    const d = decideWorkspace({ project: p, ticket: 'T-3', scope: ['src'], active: [at('T-1', ['src/a']), at('T-2', ['docs'])] })
+    expect(d).toEqual({ action: 'stacked', onTicket: 'T-1', baseBranch: 'feature/T-1' })
+  })
+
+  it('6e. with a chain of conflicting tickets (each cut from the one before) it stacks on the newest', () => {
+    const p = project({ onOverlap: 'stack', maxParallel: 5 })
+    const a = at('A', ['src/a'])
+    const b = at('B', ['src/b'], { baseBranch: 'feature/A' })
+    const c = at('C', ['src/c'], { baseBranch: 'feature/B' })
+    expect(decideWorkspace({ project: p, ticket: 'D', scope: ['src'], active: [a, b, c] }))
+      .toEqual({ action: 'stacked', onTicket: 'C', baseBranch: 'feature/C' })
+  })
+
+  it('6f. the newest is decided by createdAt, never by the order the caller listed the tickets in', () => {
+    const p = project({ onOverlap: 'stack', maxParallel: 5 })
+    const a = at('A', ['src/a'])
+    const b = at('B', ['src/b'], { baseBranch: 'feature/A' })
+    const c = at('C', ['src/c'], { baseBranch: 'feature/B' })
+    const expected = { action: 'stacked', onTicket: 'C', baseBranch: 'feature/C' }
+    for (const order of [[a, b, c], [c, b, a], [b, c, a], [c, a, b]]) {
+      expect(decideWorkspace({ project: p, ticket: 'D', scope: ['src'], active: order })).toEqual(expected)
+    }
+  })
+
+  it('6g. independent conflicting tickets cannot both be contained in one branch: it waits instead of stacking', () => {
+    const p = project({ onOverlap: 'stack', maxParallel: 5 })
+    const a = at('A', ['src/a'])
+    const b = at('B', ['src/b']) // cut from develop, not from A
+    const d = decideWorkspace({ project: p, ticket: 'C', scope: ['src'], active: [a, b] })
+    expect(d).toEqual({ action: 'queued', reason: 'overlap', waitingFor: ['A', 'B'] })
+  })
+
+  it('6h. a chain that is broken (the newest is not stacked on one of the conflicting tickets) waits', () => {
+    const p = project({ onOverlap: 'stack', maxParallel: 5 })
+    const a = at('A', ['src/a'])
+    const b = at('B', ['src/b'])
+    const c = at('C', ['src/c'], { baseBranch: 'feature/B' }) // contains B but not A
+    expect(decideWorkspace({ project: p, ticket: 'D', scope: ['src'], active: [a, b, c] }))
+      .toMatchObject({ action: 'queued', reason: 'overlap' })
+  })
+
+  it('names the waiting tickets oldest first, whatever the input order', () => {
+    const a = at('A', ['src']); const b = at('B', ['src'])
+    expect(decideWorkspace({ project: project(), ticket: 'C', scope: ['src'], active: [b, a] }))
+      .toEqual({ action: 'queued', reason: 'overlap', waitingFor: ['A', 'B'] })
+    expect(decideWorkspace({ project: project({ maxParallel: 2 }), ticket: 'C', scope: ['x'], active: [b, a] }))
+      .toEqual({ action: 'queued', reason: 'capacity', waitingFor: ['A', 'B'] })
+  })
+
+  it('a ticket whose branch is its own base cannot loop the chain walk', () => {
+    const p = project({ onOverlap: 'stack', maxParallel: 5 })
+    const a = at('A', ['src'], { baseBranch: 'feature/A' })
+    expect(decideWorkspace({ project: p, ticket: 'B', scope: ['src'], active: [a] })).toMatchObject({ action: 'stacked', onTicket: 'A' })
   })
 
   it('capacity is checked before overlap: a full project queues even when stacking would be allowed', () => {
