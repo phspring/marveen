@@ -294,7 +294,12 @@ export function listWorkspaces(p: ProjectConfig): WorkspaceMarker[] {
     const m = readMarker(join(dir, n))
     if (m) out.push(m)
   }
-  return out
+  // Oldest first, ties by ticket: readdir order is whatever the filesystem gives, and callers (the dispatch decision)
+  // must not depend on it.
+  return out.sort((a, b) => {
+    const d = (Date.parse(a.createdAt) || 0) - (Date.parse(b.createdAt) || 0)
+    return d !== 0 ? d : a.ticket.localeCompare(b.ticket)
+  })
 }
 
 /** Workspaces whose ticket is no longer active. Reported, never deleted: that is a person's call. */
