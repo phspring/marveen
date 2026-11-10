@@ -29,6 +29,7 @@ import { resolveMasterKeyForExport } from './vault.js'
 import { getDb, backfillEmbeddings } from '../db.js'
 import { logger } from '../logger.js'
 import { isValidModelId } from '../model-id.js'
+import { normalizeExternalRef, normalizeScopeField } from '../kanban-ticket-fields.js'
 
 // ---------------------------------------------------------------------------
 // Schema version -- bump when the JSON shape changes incompatibly.
@@ -1264,12 +1265,20 @@ export function importFleet(
         if (!c.id || !c.title || !c.status || !c.priority || c.sort_order == null) {
           logger.warn({ id: c.id }, 'Fleet import: skipping kanban card with missing required fields'); continue
         }
+        // The ticket-environment fields come from a file, so they go through the same validation as an API write:
+        // a value that is not a clean reference / repo-relative scope is dropped (null) with a warning, the card
+        // itself is still imported. An export from an install without the columns has none.
+        const importedRef = normalizeExternalRef(c.external_ref)
+        const importedScope = normalizeScopeField(c.scope)
+        if (!importedRef.ok || !importedScope.ok) {
+          logger.warn({ id: c.id }, 'Fleet import: a kanban card has an invalid external_ref or scope, imported without it')
+        }
         db.prepare(
           `INSERT OR IGNORE INTO kanban_cards
            (id, title, description, test_steps, status, assignee, priority, project,
             due_date, start_date, sort_order, created_at, updated_at, archived_at, parent_id, dispatched_at,
-            claimed_by, claimed_at, claim_expires_at, version, done_evidence)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            claimed_by, claimed_at, claim_expires_at, version, done_evidence, external_ref, scope)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(c.id, c.title, c.description ?? null, c.test_steps ?? null, c.status, c.assignee ?? null,
           c.priority, c.project ?? null, c.due_date ?? null, c.start_date ?? null, c.sort_order,
           c.created_at, c.updated_at, c.archived_at ?? null, c.parent_id ?? null, c.dispatched_at ?? null,
@@ -1281,7 +1290,8 @@ export function importFleet(
           // checked against the same number after it. An export from an install
           // without the column has none: the NOT NULL column starts at 0.
           Number.isSafeInteger(c.version) && c.version >= 0 ? c.version : 0,
-          c.done_evidence ?? null)
+          c.done_evidence ?? null,
+          importedRef.ok ? importedRef.value : null, importedScope.ok ? importedScope.value : null)
       }
 
       // kanban comments (idempotent: card_id + content)

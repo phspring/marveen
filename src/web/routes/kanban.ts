@@ -32,6 +32,7 @@ import { shellWord } from '../sanitize.js'
 import { nicknameFor } from '../team-nicknames.js'
 import { isAgentRunning } from '../agent-process.js'
 import { resolveKanbanDispatch, parseDispatchSkipAgents } from '../../kanban-dispatch.js'
+import { normalizeExternalRef, normalizeScopeField } from '../../kanban-ticket-fields.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { getCardTokenUsage } from '../token-usage.js'
 import { logger } from '../../logger.js'
@@ -48,6 +49,25 @@ if (KANBAN_LABEL_COLORS_REJECTED.length > 0) {
 }
 if (KANBAN_LABEL_COLORS_OVERFLOW > 0) {
   logger.warn({ dropped: KANBAN_LABEL_COLORS_OVERFLOW, kept: KANBAN_LABEL_COLORS.length }, `KANBAN_LABEL_COLORS: the label palette is too large; the entries past the size limit (${MAX_LABEL_PALETTE_ENTRIES} distinct colours) were dropped`)
+}
+
+// The ticket-environment fields of a card body (docs/jegy-kornyezet.md): `external_ref` (e.g. "TVR-2658") and `scope`
+// (repo-relative path prefixes, a list or one per line). Validated and rewritten in place when they are present, so
+// the row only ever holds the clean stored shape. A bad value is the caller's mistake: an error message, never a
+// silent drop (a scope that quietly lost an entry would make the overlap check trust less than the author wrote).
+// Absent keys are left alone.
+function normalizeTicketFields(data: Record<string, unknown>): string | null {
+  if ('external_ref' in data) {
+    const r = normalizeExternalRef(data.external_ref)
+    if (!r.ok) return r.error
+    data.external_ref = r.value
+  }
+  if ('scope' in data) {
+    const r = normalizeScopeField(data.scope)
+    if (!r.ok) return r.error
+    data.scope = r.value
+  }
+  return null
 }
 
 // #1023: keys a PUT /api/kanban/:id body may carry WITHOUT being a writable
@@ -1035,6 +1055,11 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     if (unknownKeys.length > 0) {
       logger.warn({ id, keys: unknownKeys }, 'POST /api/kanban: ismeretlen mező(k), csendben eldobva')
     }
+    const ticketFieldError = normalizeTicketFields(data)
+    if (ticketFieldError) {
+      json(res, { error: ticketFieldError }, 400)
+      return true
+    }
     try {
       createKanbanCard({ ...data, id })
     } catch (err) {
@@ -1110,6 +1135,11 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       json(res, {
         error: `Unknown field(s): ${unknown.join(', ')}. Accepted: ${KANBAN_WRITABLE_FIELDS.join(', ')}`,
       }, 400)
+      return true
+    }
+    const ticketFieldError = normalizeTicketFields(data)
+    if (ticketFieldError) {
+      json(res, { error: ticketFieldError }, 400)
       return true
     }
     // A re-parent is refused rather than stored if it would close a loop, same reasoning as

@@ -410,6 +410,16 @@ export function initDatabase(dbPathOverride?: string): void {
   } catch {
     // column already exists
   }
+  // Migration: external_ref (the ticket's id in the tracker, e.g. TVR-2658) and scope (the repo-relative path
+  // prefixes the ticket will touch, one per line): what the ticket environments read (docs/jegy-kornyezet.md).
+  // Same placement rule as the columns above: after the testing-status rebuild.
+  for (const col of ['external_ref TEXT', 'scope TEXT']) {
+    try {
+      db.exec(`ALTER TABLE kanban_cards ADD COLUMN ${col}`)
+    } catch {
+      // column already exists
+    }
+  }
   // Migration: add agent_id, category, auto_generated columns to memories
   try {
     db.exec("ALTER TABLE memories ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'marveen'")
@@ -3284,6 +3294,12 @@ export interface KanbanCard {
   // stuck detection; updated_at is reset by comments and edits.
   last_status_at?: number
   archived_at: number | null
+  // The ticket's id in the tracker (e.g. "TVR-2658"), or null. Finds the project by its Jira key prefix and names the
+  // ticket's branch and workspace (docs/jegy-kornyezet.md). Optional in the type: rows built by hand omit it.
+  external_ref?: string | null
+  // The repo-relative path prefixes the ticket will touch, one per line, or null (not declared). Null counts as
+  // "may overlap" for the ticket environments, so an undeclared scope never lets two tickets run in parallel.
+  scope?: string | null
   // Set the first time the card is moved to in_progress and the assigned agent
   // is woken (kanban -> agent dispatch). NULL = never dispatched; the once-only
   // guard so re-dragging a card does not re-prompt the agent.
@@ -3627,7 +3643,7 @@ export function normaliseCardDate(v: unknown): number | null {
 // returned 200, stored `archived_at=null` and `sort_order=0`, logged nothing).
 export const KANBAN_CREATE_FIELDS = [
   'title', 'description', 'test_steps', 'status', 'assignee', 'priority', 'project', 'parent_id', 'due_date',
-  'start_date',
+  'start_date', 'external_ref', 'scope',
 ] as const
 
 export function createKanbanCard(card: {
@@ -3642,6 +3658,8 @@ export function createKanbanCard(card: {
   parent_id?: string
   due_date?: number | string | null
   start_date?: number | string | null
+  external_ref?: string | null
+  scope?: string | null
 }): void {
   const now = Math.floor(Date.now() / 1000)
   const status = card.status ?? 'planned'
@@ -3651,12 +3669,13 @@ export function createKanbanCard(card: {
   const sortOrder = (maxRow?.m ?? -1) + 1
 
   db.prepare(
-    `INSERT INTO kanban_cards (id, title, description, test_steps, status, assignee, priority, project, parent_id, due_date, start_date, sort_order, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO kanban_cards (id, title, description, test_steps, status, assignee, priority, project, parent_id, due_date, start_date, sort_order, created_at, updated_at, external_ref, scope)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     card.id, card.title, card.description ?? null, card.test_steps ?? null, status,
     card.assignee ?? null, card.priority ?? 'normal',
-    card.project ?? null, card.parent_id ?? null, normaliseCardDate(card.due_date), normaliseCardDate(card.start_date), sortOrder, now, now
+    card.project ?? null, card.parent_id ?? null, normaliseCardDate(card.due_date), normaliseCardDate(card.start_date), sortOrder, now, now,
+    card.external_ref ?? null, card.scope ?? null
   )
   // A card BORN in a status other than 'planned' gets its opening event row
   // here, because nothing else will ever write one for it: kanban_card_events
@@ -3686,7 +3705,7 @@ export function createKanbanCard(card: {
 // was writing one (e.g. `description_append`).
 export const KANBAN_WRITABLE_FIELDS = [
   'title', 'description', 'test_steps', 'status', 'assignee', 'priority', 'project',
-  'parent_id', 'due_date', 'start_date', 'sort_order', 'archived_at',
+  'parent_id', 'due_date', 'start_date', 'sort_order', 'archived_at', 'external_ref', 'scope',
 ] as const
 
 // The columns whose changes updateKanbanCard records in kanban_card_field_events
@@ -3773,9 +3792,9 @@ export function writeKanbanCard(
   // left the card changed with no row saying who changed it.
   return db.transaction((): KanbanCardWriteResult => {
     const changed = db.prepare(
-      `UPDATE kanban_cards SET title=?, description=?, test_steps=?, status=?, assignee=?, priority=?, project=?, parent_id=?, due_date=?, start_date=?, sort_order=?, updated_at=?, archived_at=?
+      `UPDATE kanban_cards SET title=?, description=?, test_steps=?, status=?, assignee=?, priority=?, project=?, parent_id=?, due_date=?, start_date=?, sort_order=?, updated_at=?, archived_at=?, external_ref=?, scope=?
        WHERE id=? AND (? IS NULL OR version=?)`
-    ).run(f.title, f.description, f.test_steps, f.status, f.assignee, f.priority, f.project, f.parent_id, f.due_date, f.start_date ?? null, f.sort_order, f.updated_at, f.archived_at, id, guard, guard).changes > 0
+    ).run(f.title, f.description, f.test_steps, f.status, f.assignee, f.priority, f.project, f.parent_id, f.due_date, f.start_date ?? null, f.sort_order, f.updated_at, f.archived_at, f.external_ref ?? null, f.scope ?? null, id, guard, guard).changes > 0
     if (!changed) {
       // Gone, or (only with a version) moved on between the read above and this write.
       const current = getKanbanCard(id)
