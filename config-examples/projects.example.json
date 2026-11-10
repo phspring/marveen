@@ -1,0 +1,17 @@
+{
+  "projects": {
+    "tover.tafel": {
+      "repoPath": "/var/www/tover/tover.tafel",
+      "repoKind": "submodule",
+      "mode": "worktree",
+      "baseBranch": "develop",
+      "jiraKeys": ["TVR"],
+      "workspaceRoot": "/home/user/marveen-workspaces",
+      "maxParallel": 2
+    },
+    "marveen": {
+      "repoPath": "/var/www/marveen",
+      "mode": "shared"
+    }
+  }
+}
