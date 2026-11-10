@@ -449,6 +449,7 @@ function switchPage(pageId) {
   if (pageId === 'memories') { loadMemAgents(); loadMemStats(); loadMemories() }
   if (pageId === 'skills') loadGlobalSkills()
   if (pageId === 'connectors') loadConnectors()
+  if (pageId === 'clitools') loadCliTools()
   if (pageId === 'migrate') loadMigrateAgents()
   if (pageId === 'docs') loadDocs()
   if (pageId === 'research') loadResearch()
@@ -512,7 +513,7 @@ const SIDEBAR_GROUPS = [
   { key: 'knowledge',   labelKey: 'nav.group.knowledge',   pages: ['memories', 'skills', 'research', 'ideas'] },
   { key: 'stats',       labelKey: 'nav.group.stats',       pages: ['costs', 'tokenUsage'] },
   { key: 'system',      labelKey: 'nav.group.system',      pages: ['status', 'naplo', 'updates', 'settings', 'vault'] },
-  { key: 'connections', labelKey: 'nav.group.connections', pages: ['connectors', 'federation', 'migrate'] },
+  { key: 'connections', labelKey: 'nav.group.connections', pages: ['connectors', 'clitools', 'federation', 'migrate'] },
 ]
 const sidebarGroupEls = document.querySelectorAll('.sb-group[data-group]')
 // data-page -> group key, derived from the map (not the DOM) so the map wins.
@@ -585,7 +586,7 @@ const NAV_I18N = {
   agents: 'nav.agents', activity: 'nav.activity', team: 'nav.team',
   messages: 'nav.messages', tasks: 'nav.tasks', memories: 'nav.memories',
   recall: 'nav.recall', naplo: 'nav.recall', bgTasks: 'nav.bgTasks',
-  skills: 'nav.skills', connectors: 'nav.connectors', migrate: 'nav.migrate',
+  skills: 'nav.skills', connectors: 'nav.connectors', clitools: 'nav.clitools', migrate: 'nav.migrate',
   approvals: 'nav.approvals',
   docs: 'nav.docs', research: 'nav.research', status: 'nav.status',
   settings: 'nav.settings', vault: 'nav.vault', tokenUsage: 'nav.tokenUsage',
@@ -632,6 +633,7 @@ const PAGE_HEADER_I18N = {
   updatesPage:    { title: 'updates.page_title',     sub: null },
   naploPage:      { title: 'naplo.page_title',       sub: 'naplo.page_subtitle' },
   costsPage:      { title: 'costs.page_title',       sub: 'costs.page_subtitle' },
+  clitoolsPage:   { title: 'clitools.page_title',    sub: 'clitools.page_subtitle' },
   federationPage: { title: 'federation.page_title',  sub: 'federation.page_subtitle' },
   approvalsPage:  { title: 'approvals.page_title',   sub: 'approvals.page_subtitle' },
 }
@@ -11790,6 +11792,187 @@ async function loadExternalPaths() {
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') addBtn.click() })
 })()
 
+// --- CLI inventory page ---
+// Read-only view of scripts/cli-inventory.py's output, built like the MCP page:
+// stat cards, one heading per configured folder, a card per tool, and a
+// detail modal. Every field comes from a CLI's own manifest, help text or
+// README, so each one is escaped before it reaches innerHTML.
+let cliInventory = null
+
+const CLI_PROBE_DOT = { ok: 'connected', no_binary: 'unknown', timeout: 'failed', failed: 'failed', unparsed: 'failed' }
+
+async function loadCliTools(refresh = false) {
+  const grid = document.getElementById('cliToolGrid')
+  const stats = document.getElementById('cliToolStats')
+  const errEl = document.getElementById('cliToolError')
+  if (!grid || !stats || !errEl) return
+  grid.innerHTML = `<div class="connector-loading"><span class="spinner"></span> ${escapeHtml(t('clitools.loading'))}</div>`
+  stats.innerHTML = ''
+  try {
+    const res = await fetch('/api/cli-inventory' + (refresh ? '?refresh=1' : ''))
+    const data = await res.json().catch(() => ({}))
+    // Off (no folder configured) or no inventory yet for a caller that may not
+    // start the generator: a plain empty state, not an error.
+    if (res.ok && (data.enabled === false || data.pending === true)) {
+      cliInventory = null
+      errEl.hidden = true
+      errEl.textContent = ''
+      const meta = document.getElementById('cliToolMeta')
+      if (meta) meta.textContent = ''
+      grid.innerHTML = `<div class="connector-loading">${escapeHtml(t(data.enabled === false ? 'clitools.disabled' : 'clitools.pending'))}</div>`
+      return
+    }
+    // A refresh only the owner may start: the refusal is said, and the inventory already shown stays.
+    const refusal = ownerSessionText(data)
+    if (refusal) {
+      if (cliInventory) renderCliTools()
+      else grid.innerHTML = ''
+      errEl.hidden = false
+      errEl.textContent = refusal
+      return
+    }
+    if (!res.ok || !Array.isArray(data.tools)) {
+      throw new Error(data.detail || data.error || ('HTTP ' + res.status))
+    }
+    cliInventory = data
+    const regenError = data.cache && data.cache.regen_error
+    const regenSkipped = data.cache && data.cache.regen_skipped
+    errEl.hidden = !regenError && !regenSkipped
+    errEl.textContent = regenError ? t('clitools.regen_error', { msg: regenError })
+      : regenSkipped ? t('clitools.regen_skipped') : ''
+    renderCliTools()
+  } catch (err) {
+    cliInventory = null
+    grid.innerHTML = ''
+    errEl.hidden = false
+    errEl.textContent = t('clitools.load_error', { msg: err && err.message ? err.message : String(err) })
+  }
+}
+
+function renderCliTools() {
+  const grid = document.getElementById('cliToolGrid')
+  const stats = document.getElementById('cliToolStats')
+  const meta = document.getElementById('cliToolMeta')
+  if (!grid || !stats || !cliInventory) return
+  const tools = cliInventory.tools
+  const summary = cliInventory.summary || {}
+  const working = tools.filter((x) => x.probe && x.probe.status === 'ok').length
+  const noBinary = tools.filter((x) => x.probe && x.probe.status === 'no_binary').length
+  const failed = Number(summary.probe_failures) || 0
+  stats.innerHTML = `
+    <div class="stat-card"><div class="stat-value">${Number(tools.length)}</div><div class="stat-label">${escapeHtml(t('clitools.stat.total'))}</div></div>
+    <div class="stat-card"><div class="stat-value" style="color:var(--success)">${working}</div><div class="stat-label">${escapeHtml(t('clitools.stat.working'))}</div></div>
+    ${failed ? `<div class="stat-card"><div class="stat-value" style="color:var(--danger)">${failed}</div><div class="stat-label">${escapeHtml(t('clitools.stat.failed'))}</div></div>` : ''}
+    ${noBinary ? `<div class="stat-card"><div class="stat-value" style="color:var(--text-muted)">${noBinary}</div><div class="stat-label">${escapeHtml(t('clitools.stat.no_binary'))}</div></div>` : ''}
+  `
+  if (meta) {
+    const age = cliInventory.cache && cliInventory.cache.age_seconds
+    meta.textContent = age == null ? '' : t('clitools.meta_age', { min: Math.round(age / 60) })
+  }
+
+  grid.innerHTML = ''
+  const dirs = Array.isArray(summary.dirs) ? summary.dirs : []
+  if (tools.length === 0) {
+    grid.innerHTML = `<div class="connector-loading">${escapeHtml(t('clitools.empty', { dirs: dirs.map((d) => d.dir).join(', ') }))}</div>`
+    return
+  }
+  for (const d of dirs) {
+    const heading = document.createElement('div')
+    heading.className = 'connector-group-heading'
+    heading.textContent = d.found ? d.dir : t('clitools.dir_missing', { dir: d.dir })
+    grid.appendChild(heading)
+    const scopeGrid = document.createElement('div')
+    scopeGrid.className = 'connector-scope-grid'
+    for (const tool of tools.filter((x) => x.root === d.dir)) {
+      scopeGrid.appendChild(renderCliToolCard(tool))
+    }
+    if (scopeGrid.children.length > 0) grid.appendChild(scopeGrid)
+  }
+}
+
+function renderCliToolCard(tool) {
+  const card = document.createElement('div')
+  card.className = 'connector-card'
+  const status = (tool.probe && tool.probe.status) || 'failed'
+  const dotClass = CLI_PROBE_DOT[status] || 'failed'
+  const name = tool.display_name || tool.name
+  const version = tool.version ? `<span class="connector-source-badge">${escapeHtml(tool.version)}</span>` : ''
+  card.innerHTML = `
+    <div class="connector-status-dot ${escapeHtml(dotClass)}" title="${escapeHtml(t('clitools.probe.' + status))}"></div>
+    <div class="connector-info">
+      <div class="connector-name">${escapeHtml(name)} ${version}</div>
+      <div class="connector-endpoint">${escapeHtml(tool.description || tool.name)}</div>
+    </div>
+    <span class="connector-type-badge local">CLI</span>
+  `
+  card.addEventListener('click', () => openCliToolDetail(tool))
+  return card
+}
+
+// Both label and value are plain text; the row escapes them itself.
+function cliDetailRow(label, value, isMono = false) {
+  const style = isMono ? ' style="font-family:monospace;font-size:12px"' : ''
+  return `<div class="connector-detail-row"><span class="meta-label">${escapeHtml(label)}</span><span class="meta-value"${style}>${escapeHtml(value)}</span></div>`
+}
+
+function openCliToolDetail(tool) {
+  const overlay = document.getElementById('cliToolDetailOverlay')
+  if (!overlay) return
+  document.getElementById('cliToolDetailTitle').textContent = tool.display_name || tool.name
+  const mono = (s) => `<span style="font-family:monospace;font-size:12px">${escapeHtml(s)}</span>`
+  const status = (tool.probe && tool.probe.status) || 'failed'
+  const auth = tool.auth
+  const commands = Array.isArray(tool.commands) ? tool.commands : []
+  const rows = [
+    tool.binary ? cliDetailRow(t('clitools.field.binary'), tool.binary, true) : cliDetailRow(t('clitools.field.binary'), t('clitools.no_binary')),
+    cliDetailRow(t('clitools.field.status'), t('clitools.probe.' + status)),
+    tool.version ? cliDetailRow(t('clitools.field.version'), tool.version) : '',
+    tool.license ? cliDetailRow(t('clitools.field.license'), tool.license) : '',
+    cliDetailRow(t('clitools.field.dir'), tool.dir, true),
+    auth ? cliDetailRow(t('clitools.field.auth'), [auth.mode || '-', ...(auth.env_vars || [])].join(' · '), true) : '',
+    commands.length ? cliDetailRow(t('clitools.field.commands'), t('clitools.commands_count', {
+      n: commands.length, source: (tool.probe && tool.probe.command_source) || '-' })) : '',
+    tool.docs && tool.docs.length ? cliDetailRow(t('clitools.field.docs'), tool.docs.join(', '), true) : '',
+  ]
+  document.getElementById('cliToolDetailInfo').innerHTML = rows.join('')
+
+  const skills = Array.isArray(tool.skills) ? tool.skills : []
+  document.getElementById('cliToolDetailSkills').innerHTML = skills.length
+    ? skills.map((s) => `<div class="connector-agent-item"><label>${escapeHtml(s.scope === 'global' ? t('clitools.skill_global') : s.agent)}</label> ${mono(s.skill)}</div>`).join('')
+    : `<p style="color:var(--text-muted);font-size:13px;margin:0">${escapeHtml(t('clitools.no_skills'))}</p>`
+
+  document.getElementById('cliToolDetailCommands').innerHTML = commands.length
+    ? commands.map((c) => `<div class="connector-detail-row"><span class="meta-label">${mono(c.name)}</span><span class="meta-value">`
+      + escapeHtml(c.description || '')
+      + (c.subcommands && c.subcommands.length ? `<br>${mono(c.subcommands.join(' · '))}` : '')
+      + '</span></div>').join('')
+    : `<p style="color:var(--text-muted);font-size:13px;margin:0">${escapeHtml(t('clitools.no_commands'))}</p>`
+
+  const readme = document.getElementById('cliToolDetailReadme')
+  readme.textContent = tool.readme_excerpt || ''
+  document.getElementById('cliToolDetailReadmeGroup').hidden = !tool.readme_excerpt
+  openModal(overlay)
+  const closeBtn = document.getElementById('cliToolDetailClose')
+  if (closeBtn) setTimeout(() => closeBtn.focus(), 50)
+}
+
+function wireCliToolsPage() {
+  const overlay = document.getElementById('cliToolDetailOverlay')
+  const closeBtn = document.getElementById('cliToolDetailClose')
+  const refreshBtn = document.getElementById('cliToolRefreshBtn')
+  if (!overlay || !closeBtn || !refreshBtn) return
+  closeBtn.addEventListener('click', () => closeModal(overlay))
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal(overlay)
+  })
+  refreshBtn.addEventListener('click', () => loadCliTools(true))
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', wireCliToolsPage)
+} else {
+  wireCliToolsPage()
+}
+
 async function openConnectorDetail(connector) {
   document.getElementById('connectorDetailTitle').textContent = connector.name
 
@@ -15371,7 +15554,80 @@ document.getElementById('updatesCheckBtn').addEventListener('click', async () =>
   btn.disabled = false
 })
 
-async function runUpdate(autoStash) {
+// AUTOUPDATEDIVERG1110: a diverged install (local commits AND a newer upstream) used to end in a "not started"
+// toast. Now the dialog shows the plan (GET /api/updates/rebase-plan, read-only): the local commits that would be
+// replayed and the upstream commit. The owner approves exactly that plan: its hash goes back, and the server
+// refuses when the plan changed meanwhile. Then the update runs with that approval. Every text goes in through
+// textContent (commit subjects are free text from the install).
+async function offerRebaseUpdate() {
+  let plan
+  try {
+    const r = await fetch('/api/updates/rebase-plan')
+    plan = await r.json().catch(() => ({}))
+    if (!r.ok || !plan || typeof plan.hash !== 'string') {
+      showToast(t('updates.rebase.plan_error', { msg: (plan && plan.error) || ('HTTP ' + r.status) }), 12000)
+      return
+    }
+  } catch (err) {
+    showToast(t('updates.rebase.plan_error', { msg: err.message || String(err) }), 12000)
+    return
+  }
+  if (plan.willFail) {
+    showToast(plan.willFail === 'local-dependency-without-lock'
+      ? t('updates.rebase.will_fail_lock')
+      : t('updates.rebase.will_fail', { reason: plan.willFail }), 20000)
+    return
+  }
+  const content = document.createElement('div')
+  const list = document.createElement('ul')
+  list.className = 'settings-reset-confirm-keys update-rebase-commits'
+  list.dataset.testid = 'update-rebase-commits'
+  for (const c of plan.commits || []) {
+    const li = document.createElement('li')
+    const sha = document.createElement('span')
+    sha.className = 'settings-reset-confirm-key'
+    sha.textContent = String(c.sha || '').slice(0, 7)
+    const subject = document.createElement('span')
+    subject.textContent = String(c.subject || '')
+    li.append(sha, subject)
+    list.appendChild(li)
+  }
+  if ((plan.commits || []).length < plan.ahead) {
+    const li = document.createElement('li')
+    li.textContent = t('updates.rebase.more', { n: plan.ahead - plan.commits.length })
+    list.appendChild(li)
+  }
+  const target = document.createElement('p')
+  target.textContent = plan.targetSource === 'ls-remote'
+    ? t('updates.rebase.target_now', { target: String(plan.target).slice(0, 12) })
+    : t('updates.rebase.target_fetch', { target: String(plan.target).slice(0, 12), age: Math.round((plan.localRefAgeS || 0) / 60) })
+  const windowNote = document.createElement('p')
+  windowNote.textContent = t('updates.rebase.window')
+  const agentNote = document.createElement('p')
+  agentNote.textContent = t('updates.rebase.agent_path')
+  content.append(list, target, windowNote, agentNote)
+  const ok = await confirmDialog({
+    title: t('updates.rebase.title'),
+    message: t('updates.rebase.message', { n: plan.ahead }),
+    okLabel: t('updates.rebase.ok'),
+    content,
+    wide: true,
+  })
+  if (!ok) return
+  const a = await fetch('/api/updates/rebase-approve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hash: plan.hash }),
+  })
+  const approval = await a.json().catch(() => ({}))
+  if (!a.ok || typeof approval.id !== 'string') {
+    showToast(t('updates.rebase.approve_failed', { msg: approval.error || ('HTTP ' + a.status) }), 12000)
+    return
+  }
+  await runUpdate(false, approval.id)
+}
+
+async function runUpdate(autoStash, rebaseApproval) {
   const btn = document.getElementById('updatesApplyBtn')
   btn.disabled = true
   btn.querySelector('.btn-text').hidden = true
@@ -15385,7 +15641,9 @@ async function runUpdate(autoStash) {
     const res = await fetch('/api/updates/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ autoStash: autoStash === true }),
+      body: JSON.stringify(typeof rebaseApproval === 'string'
+        ? { autoStash: autoStash === true, rebaseApproval }
+        : { autoStash: autoStash === true }),
     })
     // Parse the body regardless of status so preflight reasons
     // (not-on-main / dirty-tree / detached-head returned as 409 by
@@ -15398,6 +15656,11 @@ async function runUpdate(autoStash) {
         if (confirm(t('updates.confirm.stash'))) {
           await runUpdate(true)
         }
+        return
+      }
+      // A diverged install: not a dead end, the approval dialog opens (AUTOUPDATEDIVERG1110).
+      if (data.reason === 'local-commits' && typeof rebaseApproval !== 'string') {
+        await offerRebaseUpdate()
         return
       }
       showToast(t('updates.toast.not_started', { msg: data.error || ('HTTP ' + res.status) }))
@@ -15533,18 +15796,66 @@ function dismissOnboarding() {
   const overlay = document.getElementById('onboardingOverlay')
   if (overlay) { overlay.classList.remove('active'); overlay.hidden = true }
   document.body.style.overflow = ''
+  showSetupResumeBanner()
 }
-// The owner reopens the wizard (the auth banner): both records are cleared.
+// The owner reopens the wizard (the auth banner, the setup-resume banner): both records are cleared.
 function undismissOnboarding() {
   try { localStorage.removeItem(ONBOARDING_DISMISS_KEY) } catch { /* storage blocked */ }
   onboardingDismissedOnServer = false
   saveOnboardingDismissed(false)
 }
+// DOCKERFIXES1109 (2): a closed wizard had only one way back, the auth banner, and that one shows only while no
+// dashboard login exists. Whoever closed the wizard after creating the login (measured on the Docker trial, step 4)
+// had none. This banner shows while the wizard is closed AND the server still says the setup is unfinished; its
+// close hides it for this browser session only, so it cannot become the next dead end.
+const SETUP_RESUME_HIDE_KEY = 'mvSetupResumeHidden'
+async function showSetupResumeBanner(known) {
+  const banner = document.getElementById('setupResumeBanner')
+  if (!banner) return
+  let hidden = false
+  try { hidden = sessionStorage.getItem(SETUP_RESUME_HIDE_KEY) === '1' } catch { /* storage blocked */ }
+  if (hidden || !onboardingDismissed()) { banner.hidden = true; return }
+  // DOCKERFIXES1109 follow-up (Dani's review of #2649, point 2): while the auth banner is actually SHOWN (no login yet),
+  // it is the one way back (its button opens the wizard too), so this one stays out of the way. Only while it is shown:
+  // once the owner closes it, initAuthBanner's dismiss re-runs this check and this banner comes back.
+  const auth = document.getElementById('authSetupBanner')
+  if (auth && !auth.hidden) { banner.hidden = true; return }
+  const s = known || await fetchOnboardingStatus()
+  banner.hidden = !(s && s.needsOnboarding)
+}
+function setupResumeMessage(text) {
+  const msg = document.getElementById('setupResumeMsg')
+  if (!msg) return
+  msg.textContent = text || ''
+  msg.hidden = !text
+}
+function wireSetupResumeBanner() {
+  const banner = document.getElementById('setupResumeBanner')
+  if (!banner) return
+  const go = document.getElementById('setupResumeGoBtn')
+  const close = document.getElementById('setupResumeDismiss')
+  if (close) close.addEventListener('click', () => {
+    try { sessionStorage.setItem(SETUP_RESUME_HIDE_KEY, '1') } catch { /* storage blocked */ }
+    banner.hidden = true
+  })
+  if (go) go.addEventListener('click', async () => {
+    const s = await fetchOnboardingStatus()
+    // DOCKERFIXES1109 follow-up (Dani's review of #2649, point 1): an unreadable status (offline, a 5xx) used to hide
+    // the banner and open nothing, so there was no way back until a reload. The banner now stays, with a message.
+    if (!s) { setupResumeMessage(t('onboarding.resume.status_error')); return }
+    setupResumeMessage('')
+    banner.hidden = true
+    if (!s.needsOnboarding) return
+    undismissOnboarding()
+    renderOnboarding(s, await fetchOnboardingAuth())
+  })
+}
 async function initOnboarding() {
-  if (onboardingDismissed()) return
+  wireSetupResumeBanner()
+  if (onboardingDismissed()) { await showSetupResumeBanner(); return }
   const s = await fetchOnboardingStatus()
   if (!s) return
-  if (s.dismissed === true) { onboardingDismissedOnServer = true; return }
+  if (s.dismissed === true) { onboardingDismissedOnServer = true; await showSetupResumeBanner(s); return }
   if (!s.needsOnboarding) return
   renderOnboarding(s, await fetchOnboardingAuth())
 }
@@ -17253,6 +17564,9 @@ async function initAuthBanner() {
   const canCreate = !!status && (status.method === 'token' || (status.method === 'device' && 'owner_session' in status))
   const show = !!status && status.authenticated && canCreate && status.setup_required && !dismissed
   banner.hidden = !show
+  // DOCKERFIXES1109 follow-up: the setup-resume banner stays out of the way while this one is shown; re-check it now
+  // that this one is decided (whichever of the two inits finishes first).
+  if (show) showSetupResumeBanner()
 }
 
 function wireAuthBanner() {
@@ -17263,6 +17577,8 @@ function wireAuthBanner() {
   if (dismiss) dismiss.addEventListener('click', () => {
     try { localStorage.setItem(AUTH_BANNER_DISMISS_KEY, '1') } catch { /* storage blocked */ }
     banner.hidden = true
+    // DOCKERFIXES1109 follow-up: closing this one must not close the last way back to an unfinished setup.
+    showSetupResumeBanner()
   })
   // Land on the Security tab, where the auth card lives now (openCreateLoginSettings, shared with the 403 setup_required path).
   // ONBOARDOWNERPW1107 (Samu 72423): while the onboarding is unfinished, the banner takes the owner back to the wizard,
@@ -19135,6 +19451,8 @@ const TU_MODEL_PRICING = {
   'claude-sonnet-4-6':   { in: 3.0,   out: 15.0,  cw: 3.75,  cr: 0.30 },
   'claude-sonnet-4-5':   { in: 3.0,   out: 15.0,  cw: 3.75,  cr: 0.30 },
   'claude-fable-5':      { in: 10.0,  out: 50.0,  cw: 12.50, cr: 1.00 },
+  // Fable 5.2: official pricing page, read 2026-11-09 (FABLE52SELECTOR1109): $8 in, $40 out, $10 5m cache write, $0.20 cache hit.
+  'claude-fable-5-2':    { in: 8.0,   out: 40.0,  cw: 10.00, cr: 0.20 },
   'claude-mythos-5':     { in: 10.0,  out: 50.0,  cw: 12.50, cr: 1.00 },
   // Haiku 5.5, from the official pricing page (2026-10-08): prompts up to 100k
   // tokens 0.10 / 0.50 (5m cache write 0.125, hit 0.01); prompts over 100k
