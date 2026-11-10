@@ -243,7 +243,16 @@ export function archiveInstanceMemory(base: string, name: string): Result<{ arch
   const dest = join(tplDir, 'memory', 'tickets', ticketSlug(of.ticket) ?? 'ticket')
   try {
     mkdirSync(dest, { recursive: true })
-    for (const f of files) cpSync(join(memory, f), join(dest, f), { recursive: true, force: false, errorOnExist: false, dereference: false })
+    // The filter runs on EVERY entry, at every depth: only regular files and directories are copied. A symlink
+    // nested in a subdirectory (or a socket, a pipe) stays out, so nothing in the archive can point out of the
+    // instance, whatever the instance wrote into its own memory.
+    const onlyFilesAndDirs = (src: string): boolean => {
+      const st = lstatSync(src)
+      return st.isFile() || st.isDirectory()
+    }
+    for (const f of files) {
+      cpSync(join(memory, f), join(dest, f), { recursive: true, force: false, errorOnExist: false, dereference: false, filter: onlyFilesAndDirs })
+    }
     return { ok: true, archived: files.length, to: dest }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
