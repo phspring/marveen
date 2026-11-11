@@ -1,8 +1,9 @@
 # Jegy-környezet: projekt-regisztráció és workspace-modul
 
 > Egy projekt jegyei külön, elkülönített checkouton dolgozhatnak, anélkül hogy egymás fájljait zavarnák.
-> **Állapot: alap (2. lépés).** A modulok megvannak és tesztelve vannak, de semmi nem hívja őket: a kanban-dispatch
-> és az ágens-indító még nem használja. Az éles viselkedés változatlan.
+> **Állapot: bekötve, kapcsoló mögött.** A `TICKET_ENVIRONMENTS` beállítás alapból **ki** van kapcsolva, és addig a kanban
+> pontosan úgy működik, mint eddig. Bekapcsolva csak azok a kártyák érintettek, amelyek a `store/projects.json`-ban
+> `worktree` módú projekthez tartoznak. Lásd lent: "Bekapcsolás".
 
 ---
 
@@ -185,12 +186,58 @@ A `waiting` és a `testing` oszlopban a környezet megmarad, mert a munka még n
 
 ---
 
+## Bekapcsolás
+
+A funkció **három feltétel együttes teljesülésekor** hat egy kártyára, és bármelyik hiánya a mai viselkedést adja:
+
+1. A `TICKET_ENVIRONMENTS` beállítás `1` (Beállítások oldal vagy `.env`; alapból `0`, újraindítás nélkül kapcsolható).
+2. A kártya egy olyan projekthez tartozik a `store/projects.json`-ban, amelynek `mode: "worktree"` és van `workspaceRoot`-ja.
+   A projektet a kártya `project` mezője, az `external_ref` Jira-kulcs előtagja, vagy a könyvtár adja (lásd fent).
+3. A kártya megbízottja egy valódi ügynök (nem a főágens, nem a tulajdonos, nem egy példány).
+
+**Mit csinál a rendszer**, ha a kártya `in_progress` lesz:
+
+- A `/move` válasza **nem vár** a környezetre: a workspace és a példány létrehozása másodpercekig tart, ezért a
+  dispatch aszinkron fut. A mozgatás sikeres marad akkor is, ha a környezet nem készül el (ezt a kártya komment és a
+  főágensnek küldött riasztás jelzi, mint a mai "nem kapott üzenetet" eset).
+- A megbízott ügynök **nem indul el**: a kártyát annak az ideiglenes példánya kapja, a kiosztó üzenet a workspace
+  literális útját és az ág nevét is tartalmazza.
+- Ha a példány maga húzza `in_progress`-be a saját kártyáját, ez nem indít újabb üzenetet (az átvétel nem hív új kiosztást).
+
+**Mit csinál, ha a kártya elhagyja az aktív oszlopokat.** Egy időzítő percenként (és a `/move`, a PUT, az archiválás
+és a törlés után két másodperccel) lefuttatja a `reconcileTicketEnvironments`-et. Az `in_progress`, `waiting` és
+`testing` kártya környezete megmarad. Minden más (kész, visszatett, archivált, törölt) kártya környezete megszűnik, a
+nem mentett munkát tartalmazó workspace kivételével, amely megmarad, és a kártyán egy komment szól róla.
+Az időzítő olyan útvonalat is lefed, amelyhez nincs horog (egy szkript, amely közvetlenül a táblát írja).
+
+**Biztonságos bevezetés:**
+
+1. Vegyél fel egy projektet `store/projects.json`-ba (`config-examples/projects.example.json`), először `"mode": "shared"`-del.
+2. Kapcsold be a `TICKET_ENVIRONMENTS`-et: ekkor még semmi nem változik, mert a projekt `shared`.
+3. Állítsd át **egy** projektet `"mode": "worktree"`-re, `workspaceRoot`-tal a telepítésen **kívül**, és `maxParallel: 1`-gyel.
+4. Húzz egy kártyát `in_progress`-be, és nézd meg a kommentet (a példány, a workspace, az ág neve).
+5. Ha jó, emeld a `maxParallel`-t. A kártyák `scope` mezőjét a vezető töltse ki: a hiányzó `scope` átfedésnek számít,
+   ezért addig a jegyek egymásra várnak (ez a biztonságos oldal).
+
+**Visszaállás:** a `TICKET_ENVIRONMENTS=0` azonnal a mai viselkedést adja vissza az új kártyákra. A már létrehozott
+környezetek nem tűnnek el magukról: a lezárt kártyákét a következő bekapcsolt időzítő-menet takarítja el, a futókét
+a kártya lezárása. Ha kapcsolás nélkül kell takarítani, a példányok az `agents/` alatt a `instanceOf` jelölésről
+ismerhetők fel, a workspace-ek pedig a `workspaceRoot` alatt vannak.
+
+**Ismert korlátok:**
+
+- A példányok az ágensek listáján látszanak (a `instanceOf` jelöli őket), a dashboard még nem csoportosítja őket.
+- Épülő (stacked) jegy csak `worktree` típusú repóban lehet; almodul (klón) projektben a jegy vár.
+- A példány memóriája a jegy végén a sablonhoz kerül (`memory/tickets/<jegy>/`). Azt, hogy a sablon (vagy egy későbbi
+  példány) ezt a mappát automatikusan beolvassa-e, nem ellenőriztem: a fájlok megvannak, de lehet, hogy kézzel kell rájuk
+  mutatni.
+
+---
+
 ## Mi van még hátra
 
-3. A tényleges bekötés, kapcsolóval (`TICKET_ENVIRONMENTS`, alapból ki): a `/move` `in_progress`-re a `dispatchViaEnvironment`-et
-   hívja (aszinkron, a mozgatást nem blokkolja), egy időzítő futtatja a `reconcileTicketEnvironments`-et, és a dashboard
-   indulásakor bekapcsol.
 4. Skill-könyvtár és hozzárendelések.
 5. A `store/projects.json` védelme a gate-ben, utána a setup/teardown parancsok.
+6. A dashboard csoportosítsa a példányokat a sablonjuk alatt.
 
 A teljes terv és a mért döntések a "Párhuzamos munkaterv" oldalon vannak.

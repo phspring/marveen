@@ -365,6 +365,16 @@ export const SETTINGS_REGISTRY: SettingDefinition[] = [
     secret: false,
     requiresRestart: false,
   },
+  // --- Ticket environments (opt-in, hot-reload via settings-store) ---
+  {
+    key: 'TICKET_ENVIRONMENTS',
+    type: 'boolean',
+    default: '0',
+    description: 'Jegy-környezetek. Bekapcsolva az a kártya, amely a store/projects.json-ban izoláló (worktree módú) projekthez tartozik, in_progress-be húzáskor saját workspace-t (worktree vagy klón) és egy ideiglenes példány-ágenst kap, így ugyanazon projekt jegyei nem zavarják egymást. A felszabaduló helyre a sorban álló jegy magától indul, a lezárt jegy környezete magától megszűnik (nem mentett munkát tartalmazó workspace megmarad). Kikapcsolva (alapértelmezés) semmi nem fut, és a kanban pontosan úgy működik, mint eddig. Lásd docs/jegy-kornyezet.md.',
+    module: 'kanban',
+    secret: false,
+    requiresRestart: false,
+  },
   // --- Kanban aging thresholds and colours (hot-reload via settings-store) ---
   {
     key: 'KANBAN_AGING_WARN_H',
