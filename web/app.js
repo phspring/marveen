@@ -14807,6 +14807,24 @@ function projectAssigneeMeta(rawName) {
     : { label: raw, type: 'unknown' }
 }
 
+// How the project is registered (store/projects.json), as the server sent it in `registration`: null means the
+// project is not in the registry, so its cards share the one checkout. Only the repo's name is shown, never its path.
+function projectRegistrationHtml(p) {
+  const r = p.registration
+  if (!r) return `<div class="project-card-reg"><span class="kanban-card-assignee">${escapeHtml(t('projects.reg.not_registered'))}</span></div>`
+  const chips = [
+    t(r.mode === 'worktree' ? 'projects.reg.worktree' : 'projects.reg.shared'),
+    `${t('projects.reg.repo')}: ${r.repo}`,
+    `${t('projects.reg.base')}: ${r.baseBranch}`,
+  ]
+  if (r.isolated) {
+    chips.push(t('projects.reg.max_parallel', { n: r.maxParallel }))
+    chips.push(t('projects.reg.active', { n: r.activeTickets ?? 0 }))
+  }
+  if (p.cardTotal === 0) chips.push(t('projects.reg.no_cards'))
+  return `<div class="project-card-reg">${chips.map((c) => `<span class="kanban-card-assignee">${escapeHtml(c)}</span>`).join('')}</div>`
+}
+
 function renderProjects() {
   const grid = document.getElementById('projectsGrid')
   const empty = document.getElementById('projectsEmpty')
@@ -14851,6 +14869,7 @@ function renderProjects() {
         <h3>${escapeHtml(p.project)}</h3>
         <span class="overview-card-meta">${escapeHtml(t('projects.cards_done', { done: p.cardDone, total: p.cardTotal }))}</span>
       </div>
+      ${projectRegistrationHtml(p)}
       <div class="project-card-progress"><div class="project-card-progress-fill" style="width:${pct}%"></div></div>
       <div class="project-card-desc" data-role="desc-view" data-raw="${escapeHtml(p.description || '')}">${p.description ? escapeHtml(p.description) : `<em>${escapeHtml(t('projects.no_description'))}</em>`}</div>
       <textarea class="project-card-desc-edit" data-role="desc-edit" hidden>${escapeHtml(p.description || '')}</textarea>

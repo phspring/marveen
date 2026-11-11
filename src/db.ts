@@ -4101,6 +4101,13 @@ export function upsertKanbanProjectDescription(project: string, description: str
   return { changed: true }
 }
 
+/** The stored description of one project (it can exist for a project with no card), or null when none is stored. */
+export function getKanbanProjectDescription(project: string): { description: string; updatedAt: number | null } | null {
+  const row = db.prepare('SELECT description, description_updated_at AS updatedAt FROM kanban_projects WHERE project = ?')
+    .get(project) as { description: string | null; updatedAt: number | null } | undefined
+  return row && row.description ? { description: row.description, updatedAt: row.updatedAt } : null
+}
+
 export function deleteKanbanCard(id: string): boolean {
   // Wrapped in a transaction to ensure atomicity: all mutations succeed
   // together or none of them do. Steps in FK-safe order:
