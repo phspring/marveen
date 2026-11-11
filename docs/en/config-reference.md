@@ -136,6 +136,7 @@ Every dashboard-editable setting is a registry entry with the following fields:
 | `KANBAN_ARCHIVE_DONE_DAYS` | int | 30 | min 1, max 365 | no |
 | `KANBAN_DISPATCH_SKIP_AGENTS` | string | (empty) | agent names, comma-separated, for example `pm,reviewer` (an agent listed here is not woken when a card is moved to `in_progress`, see `kanban.md`) | no |
 | `KANBAN_CLAIM_LOCK` | boolean | `0` | `0` or `1` (card claim lock, see `kanban.md`) | no |
+| `TICKET_ENVIRONMENTS` | boolean | `0` | `0` or `1` (ticket environments: a card of an isolating project gets its own workspace and an instance agent, see `jegy-kornyezet.md`) | no |
 | `KANBAN_AGING_WARN_H` | int | 24 | min 1, max 8760 | no |
 | `KANBAN_AGING_CAUTION_H` | int | 72 | min 1, max 8760 | no |
 | `KANBAN_AGING_CRITICAL_H` | int | 168 | min 1, max 8760 | no |

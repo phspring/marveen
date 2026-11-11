@@ -33,6 +33,11 @@ import { nicknameFor } from '../team-nicknames.js'
 import { isAgentRunning } from '../agent-process.js'
 import { resolveKanbanDispatch, parseDispatchSkipAgents } from '../../kanban-dispatch.js'
 import { normalizeExternalRef, normalizeScopeField } from '../../kanban-ticket-fields.js'
+import { readInstanceOf } from '../agent-instance.js'
+import { dispatchViaEnvironment, isolatingProjectOf, type FlowCard } from '../ticket-environment-flow.js'
+import {
+  makeTicketEnvironmentIO, requestReconcile, resolveTemplateFor, ticketEnvironmentsEnabled, type DispatchBridge,
+} from '../ticket-environment-runtime.js'
 import { generateBreakdown } from '../llm-breakdown.js'
 import { getCardTokenUsage } from '../token-usage.js'
 import { logger } from '../../logger.js'
@@ -292,6 +297,78 @@ function fireKanbanDispatch(id: string, actor?: string | null): void {
   try {
     const card = getKanbanCard(id)
     if (!card || card.dispatched_at) return
+    // Ticket environments (TICKET_ENVIRONMENTS, off by default): a card of an isolating project is dispatched
+    // through its own workspace and instance instead. Everything else, and everything while the switch is off,
+    // takes the path below exactly as before.
+    if (ticketEnvironmentsEnabled() && fireViaTicketEnvironment(card, actor)) return
+    dispatchToAgent(card, actor)
+  } catch (err) {
+    logger.warn({ err, id }, 'Kanban dispatch failed (card move still succeeded)')
+    reportUndeliveredDispatch(id, 'a kiosztás hibára futott')
+  }
+}
+
+/** The dispatch message of a ticket environment: the usual card message, plus where the work happens. */
+function sendTicketDispatch(card: FlowCard, instance: string, info: { workspace: string; branch: string; baseBranch: string }): void {
+  const full = getKanbanCard(card.id)
+  if (!full || !DISPATCH_SAFE_CARD_ID_RE.test(full.id)) throw new Error('the card is gone or its id is not of the dispatchable shape')
+  createAgentMessage(MAIN_AGENT_ID, instance, [
+    buildKanbanDispatchContent(full, instance),
+    '',
+    `Jegy-környezet: a munkakönyvtárad \`${info.workspace}\`, az ágad \`${info.branch}\` (alap: \`${info.baseBranch}\`).`,
+    `Gitet csak literális abszolút úttal használj: \`git -C ${info.workspace} ...\`, változóval vagy \`$(...)\`-vel nem. A fő checkoutba ne dolgozz.`,
+    'Nem commitolsz és nem pusholsz: azt a vezető vagy a fő session végzi.',
+  ].join('\n'))
+  logger.info({ id: card.id, instance, workspace: info.workspace }, 'Kanban in_progress dispatch fired through a ticket environment')
+}
+
+/** What the ticket environments need from the routes: the message to the instance and the "not woken" alarm. */
+export const ticketDispatchBridge: DispatchBridge = {
+  send: sendTicketDispatch,
+  reportUndelivered: (cardId, why) => reportUndeliveredDispatch(cardId, why),
+}
+
+/**
+ * Take over the dispatch of a card that belongs to an isolating project. True when this function took the card (the
+ * dispatch then runs asynchronously: preparing a workspace and an instance takes seconds, and the move must not
+ * wait for it); false leaves the card to today's path.
+ */
+function fireViaTicketEnvironment(card: KanbanCard, actor?: string | null): boolean {
+  const io = makeTicketEnvironmentIO(ticketDispatchBridge)
+  if (!isolatingProjectOf(card, io)) return false
+  // The template must be dispatchable, but it need not be running: its instance is what runs. The main agent and an
+  // unknown or skipped assignee stay on today's path, which also raises its alarms.
+  const template = resolveTemplateFor(card, actor)
+  if (!template) return false
+  // An instance that moves its own card to in_progress is picking up what it was sent: no second message. The pick-up
+  // counts as the dispatch, so it stamps the once-only guard: a card leaving in_progress clears it, and a card that
+  // came back (a rework round) without it would look "never dispatched" to the reconcile, which retries exactly those
+  // and would send the same instance a second message within a minute.
+  if (actor) {
+    const mover = readInstanceOf(agentDir(actor))
+    if (mover && mover.template === template) {
+      markKanbanCardDispatched(card.id)
+      return true
+    }
+  }
+  void dispatchViaEnvironment(card, template, io).then((outcome) => {
+    // not this feature's card after all (the assignee is itself an instance): today's path
+    if (outcome === 'shared') {
+      try { dispatchToAgent(card, actor) } catch (err) {
+        logger.warn({ err, id: card.id }, 'Kanban dispatch failed (card move still succeeded)')
+        reportUndeliveredDispatch(card.id, 'a kiosztás hibára futott')
+      }
+    }
+  }).catch((err) => {
+    logger.warn({ err, id: card.id }, 'Ticket environment dispatch failed (card move still succeeded)')
+    reportUndeliveredDispatch(card.id, 'a jegy-környezet kiosztása hibára futott')
+  })
+  return true
+}
+
+function dispatchToAgent(card: KanbanCard, actor?: string | null): void {
+  const id = card.id
+  try {
     const decision = resolveKanbanDispatch(card.assignee, {
       ownerName: OWNER_NAME,
       botName: BOT_NAME,
@@ -1176,6 +1253,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
     const before = getKanbanCard(id)
     const written = writeKanbanCard(id, data, who.actor, expectedVersion)
     if (written.ok) {
+      requestReconcile()
       const after = getKanbanCard(id)
       if (before?.status !== 'done' && after?.status === 'done') notifyUnblockedCards(id, who.actor)
       json(res, {
@@ -1209,7 +1287,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   if (kanbanCardMatch && method === 'DELETE') {
     const id = decodeURIComponent(kanbanCardMatch[1])
     revertIdeaFromKanban(id)
-    if (deleteKanbanCard(id)) { json(res, { ok: true }); return true }
+    if (deleteKanbanCard(id)) { requestReconcile(); json(res, { ok: true }); return true }
     json(res, { error: 'Kártya nem található' }, 404)
     return true
   }
@@ -1393,6 +1471,9 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
       ...(hasEvidence ? { evidence: evidence as string } : {}),
     }
     if (moveKanbanCard(id, effectiveStatus, sort_order ?? 0, who.actor, moveOpts)) {
+      // A card that left the active columns (done, back to planned) frees its ticket environment: asked for, not
+      // done here, so the move never waits for it. A no-op while TICKET_ENVIRONMENTS is off.
+      requestReconcile()
       // Wake the assigned agent once when the card enters in_progress -- unless
       // that agent is the one who moved it (self-pickup needs no wake-up).
       if (effectiveStatus === 'in_progress') fireKanbanDispatch(id, who.actor)
@@ -1428,7 +1509,7 @@ export async function tryHandleKanban(ctx: RouteContext): Promise<boolean> {
   if (kanbanArchiveMatch && method === 'POST') {
     const id = decodeURIComponent(kanbanArchiveMatch[1])
     revertIdeaFromKanban(id)
-    if (archiveKanbanCard(id)) { json(res, { ok: true }); return true }
+    if (archiveKanbanCard(id)) { requestReconcile(); json(res, { ok: true }); return true }
     json(res, { error: 'Kártya nem található' }, 404)
     return true
   }

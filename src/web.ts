@@ -46,6 +46,7 @@ import { startReauthHealer } from './web/reauth-healer.js'
 import { startAutoRestartRunner } from './web/auto-restart-runner.js'
 import { startModelFallbackRunner } from './web/model-fallback-runner.js'
 import { startKanbanArchiveRunner } from './web/kanban-archive-runner.js'
+import { startTicketEnvironmentRunner, stopTicketEnvironmentRunner } from './web/ticket-environment-runner.js'
 import { startContextGuardRunner } from './web/context-guard-runner.js'
 import { startContextRestartGateRunner, setMainSweepHook } from './web/context-restart-gate-runner.js'
 import { startEventLoopLagMonitor } from './web/event-loop-lag-monitor.js'
@@ -590,6 +591,11 @@ export function startWebServer(port = 3420): http.Server {
   const kanbanArchiveInterval = servicesOff ? undefined : startKanbanArchiveRunner()
   if (!servicesOff) logger.info('Kanban archive runner started (60min poll, 70s offset)')
 
+  // The ticket-environment reconcile (TICKET_ENVIRONMENTS, off by default; the switch is read on every tick). It frees
+  // the environments of cards that left the board's active columns and retries the cards that had to wait.
+  const ticketEnvironmentInterval = servicesOff ? undefined : startTicketEnvironmentRunner()
+  if (!servicesOff) logger.info('Ticket-environment runner started (60s poll, 45s offset, a no-op while TICKET_ENVIRONMENTS is off)')
+
   const contextGuardInterval = servicesOff ? undefined : startContextGuardRunner()
   if (!servicesOff) logger.info('Context-guard runner started (5min poll, 4.5min initial delay)')
 
@@ -872,6 +878,7 @@ setInterval(() => { try { sweepExpiredDesktopLock() } catch { /* never kill the 
     clearInterval(autoRestartInterval)
     clearInterval(modelFallbackInterval)
     clearInterval(kanbanArchiveInterval)
+    stopTicketEnvironmentRunner(ticketEnvironmentInterval)
     clearInterval(contextGuardInterval)
     clearInterval(approvalTimeoutInterval)
     clearInterval(approvalReactionInterval)
