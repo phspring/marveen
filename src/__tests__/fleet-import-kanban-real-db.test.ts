@@ -114,6 +114,26 @@ describe('fleet import: a kanban card survives a real SQLite import', () => {
     expect(back).toEqual(card)
   })
 
+  it('the ticket fields are validated on import: clean ones survive, invalid ones are dropped, the card is still imported', () => {
+    initDatabase(':memory:')
+    const base = cardForLiveSchema()
+    const good = { ...base, id: 'fleet-ticket-good', external_ref: 'TVR-5', scope: 'src/a\nsrc/b' }
+    const bad = { ...base, id: 'fleet-ticket-bad', external_ref: '../escape', scope: '/etc/passwd' }
+    const result = importFleet(fleetWith([good, bad]), { apply: true }) as { errors?: string[] }
+    expect(result.errors ?? []).toEqual([])
+    const row = (id: string) => getDb().prepare('SELECT external_ref, scope, title FROM kanban_cards WHERE id = ?').get(id)
+    expect(row('fleet-ticket-good')).toMatchObject({ external_ref: 'TVR-5', scope: 'src/a\nsrc/b' })
+    expect(row('fleet-ticket-bad')).toEqual({ external_ref: null, scope: null, title: 'Imported card' })
+  })
+
+  it('an export from an install without the two columns imports with both null', () => {
+    initDatabase(':memory:')
+    const { external_ref: _r, scope: _s, ...old } = cardForLiveSchema() as Record<string, unknown>
+    const result = importFleet(fleetWith([{ ...old, id: 'fleet-ticket-old' }]), { apply: true }) as { errors?: string[] }
+    expect(result.errors ?? []).toEqual([])
+    expect(getDb().prepare('SELECT external_ref, scope FROM kanban_cards WHERE id = ?').get('fleet-ticket-old')).toEqual({ external_ref: null, scope: null })
+  })
+
   it('the import is idempotent on a real schema (INSERT OR IGNORE)', () => {
     initDatabase(':memory:')
     const card = cardForLiveSchema()
