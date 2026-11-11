@@ -30,7 +30,10 @@ export interface WorkspacePlan {
   ticket: string
   kind: WorkspaceKind
   repoPath: string
+  /** The branch the ticket is cut from: the project's base branch, or another ticket's branch when it is stacked. */
   baseBranch: string
+  /** What git is told to start from: `origin/<baseBranch>`, or the other ticket's local branch when stacked. */
+  baseRef: string
   branch: string
   /** The checkout the agent works in. */
   path: string
@@ -69,13 +72,33 @@ export function projectSlug(name: string): string {
   return s === '' ? 'project' : s
 }
 
-export function planWorkspace(p: ProjectConfig, ticket: unknown, opts: { branch?: string } = {}): Result<{ plan: WorkspacePlan }> {
+/**
+ * `opts.stackOn`: build this ticket on another ticket's branch (the `stacked` decision) instead of on the project's
+ * base branch. Only for a worktree project: a worktree shares its branches with the main repo, so the other ticket's
+ * branch is a local ref there. A clone is self-contained and has no access to another clone's unpushed branch, so a
+ * stacked ticket of a clone project is refused (the caller queues it instead).
+ */
+export function planWorkspace(
+  p: ProjectConfig,
+  ticket: unknown,
+  opts: { branch?: string; stackOn?: { branch: string } } = {},
+): Result<{ plan: WorkspacePlan }> {
   if (!isolatesTickets(p)) return { ok: false, error: `project "${p.name}" does not isolate tickets (mode is not worktree)` }
   const slug = ticketSlug(ticket)
   if (!slug) return { ok: false, error: 'invalid ticket id' }
   const branch = opts.branch ?? `feature/${slug}`
   if (!isSafeBranchName(branch)) return { ok: false, error: 'invalid branch name' }
   if (branch === p.baseBranch) return { ok: false, error: 'the ticket branch must differ from the base branch' }
+
+  let baseBranch = p.baseBranch
+  let baseRef = `origin/${p.baseBranch}`
+  if (opts.stackOn) {
+    if (p.repoKind === 'submodule') return { ok: false, error: 'stacking is only supported for worktree projects, not for clone (submodule) projects' }
+    if (!isSafeBranchName(opts.stackOn.branch)) return { ok: false, error: 'invalid branch to stack on' }
+    if (opts.stackOn.branch === branch) return { ok: false, error: 'a ticket cannot be stacked on its own branch' }
+    baseBranch = opts.stackOn.branch
+    baseRef = opts.stackOn.branch
+  }
 
   const root = p.workspaceRoot as string
   const projectDir = join(root, projectSlug(p.name))
@@ -88,7 +111,8 @@ export function planWorkspace(p: ProjectConfig, ticket: unknown, opts: { branch?
       ticket: slug,
       kind: p.repoKind === 'submodule' ? 'clone' : 'worktree',
       repoPath: p.repoPath,
-      baseBranch: p.baseBranch,
+      baseBranch,
+      baseRef,
       branch,
       path,
       projectDir,
@@ -155,6 +179,10 @@ export function planProblem(plan: WorkspacePlan): string | null {
   if (plan.kind !== 'worktree' && plan.kind !== 'clone') return 'unknown workspace kind'
   if (ticketSlug(plan.ticket) !== plan.ticket) return 'invalid ticket id'
   if (!isSafeBranchName(plan.branch) || !isSafeBranchName(plan.baseBranch) || plan.branch === plan.baseBranch) return 'invalid branch name'
+  // The start point is either origin/<base> or (stacked, worktree only) the other ticket's own local branch.
+  const stacked = plan.baseRef === plan.baseBranch
+  if (plan.baseRef !== `origin/${plan.baseBranch}` && !stacked) return 'invalid base ref'
+  if (stacked && plan.kind !== 'worktree') return 'stacking is only supported for worktree projects'
   if (!isAbsolute(plan.repoPath) || plan.repoPath.includes('\u0000')) return 'invalid repo path'
   if (!isAbsolute(plan.projectDir) || !isAbsolute(plan.path) || !isAbsolute(plan.markerPath)) return 'workspace paths must be absolute'
   if (!pathInside(plan.path, plan.projectDir) || plan.path === plan.projectDir) return 'workspace path escapes its project directory'
@@ -167,6 +195,24 @@ export function planProblem(plan: WorkspacePlan): string | null {
 function markerMatches(m: WorkspaceMarker, plan: WorkspacePlan): boolean {
   return m.path === plan.path && m.kind === plan.kind && m.repoPath === plan.repoPath
     && m.branch === plan.branch && m.baseBranch === plan.baseBranch && m.project === plan.project && m.ticket === plan.ticket
+}
+
+/**
+ * A ticket branch that holds nothing of its own: it exists, and every commit on it is already in its start point
+ * (`baseRef`). Deleting it loses no work. A branch with a commit of its own (pushed or not) is never redundant.
+ */
+async function branchIsRedundant(plan: WorkspacePlan, git: GitRunner): Promise<boolean> {
+  try { await git(['-C', plan.repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${plan.branch}`]) } catch { return false }
+  try {
+    await git(['-C', plan.repoPath, 'merge-base', '--is-ancestor', `refs/heads/${plan.branch}`, plan.baseRef])
+    return true
+  } catch { return false }
+}
+
+/** Drop the ticket branch of a worktree project when it holds nothing of its own (a clone's branch goes with the clone). */
+async function dropRedundantBranch(plan: WorkspacePlan, git: GitRunner): Promise<void> {
+  if (plan.kind !== 'worktree' || !(await branchIsRedundant(plan, git))) return
+  try { await git(['-C', plan.repoPath, 'branch', '-D', plan.branch]) } catch { /* checked out elsewhere: leave it */ }
 }
 
 /** Undo only what THIS call did (the branch it created, the worktree or clone it started), never a bare path. */
@@ -205,16 +251,23 @@ async function createWorkspaceLocked(plan: WorkspacePlan, git: GitRunner): Promi
     if (plan.kind === 'worktree') {
       try { await git(['-C', plan.repoPath, 'fetch', '--quiet', 'origin']) } catch { /* offline: use what is local */ }
       try {
-        await git(['-C', plan.repoPath, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${plan.baseBranch}^{commit}`])
+        await git(['-C', plan.repoPath, 'rev-parse', '--verify', '--quiet', `${plan.baseRef}^{commit}`])
       } catch {
-        return { ok: false, error: `origin/${plan.baseBranch} does not exist in the repo` }
+        return { ok: false, error: `${plan.baseRef} does not exist in the repo` }
       }
       let branchTaken = true
       try { await git(['-C', plan.repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${plan.branch}`]) } catch { branchTaken = false }
-      if (branchTaken) return { ok: false, error: `branch ${plan.branch} already exists in the repo` }
+      if (branchTaken) {
+        // A leftover of an earlier attempt (a failed start, a removed workspace) that holds nothing is cleared, or the
+        // ticket could never be retried. A branch with work of its own is never touched: that is an error.
+        if (await branchIsRedundant(plan, git)) await dropRedundantBranch(plan, git)
+        let stillThere = true
+        try { await git(['-C', plan.repoPath, 'rev-parse', '--verify', '--quiet', `refs/heads/${plan.branch}`]) } catch { stillThere = false }
+        if (stillThere) return { ok: false, error: `branch ${plan.branch} already exists in the repo and holds work of its own` }
+      }
       done.worktree = true
       done.branch = true
-      await git(['-C', plan.repoPath, 'worktree', 'add', '--quiet', '--no-track', '-b', plan.branch, plan.path, `origin/${plan.baseBranch}`])
+      await git(['-C', plan.repoPath, 'worktree', 'add', '--quiet', '--no-track', '-b', plan.branch, plan.path, plan.baseRef])
     } else {
       const url = (await git(['-C', plan.repoPath, 'remote', 'get-url', 'origin'])).trim()
       if (!url) return { ok: false, error: 'the repo has no origin remote' }
@@ -276,6 +329,9 @@ async function removeWorkspaceLocked(plan: WorkspacePlan, opts: { force?: boolea
       rmSync(plan.path, { recursive: true, force: true })
     }
     rmSync(plan.markerPath, { force: true })
+    // The branch stays when it holds a commit of its own (pushed or not): that work may still be wanted. A branch
+    // that holds nothing is dropped, so an empty one never blocks the next attempt at the same ticket.
+    await dropRedundantBranch(plan, git)
     return { ok: true, removed: true }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }

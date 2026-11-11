@@ -15,7 +15,7 @@
 //
 // Nothing calls this yet. Removal refuses anything that is not an instance made here, and anything still running.
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, copyFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, copyFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { atomicWriteFileSync } from './atomic-write.js'
@@ -213,6 +213,50 @@ export function listAgentInstances(base: string): Array<{ name: string; of: Inst
     if (of) out.push({ name: n, of })
   }
   return out
+}
+
+/**
+ * Keep what the instance wrote into its own memory before the instance is deleted: every file under its memory/
+ * (but the empty MEMORY.md it started with) is copied to `<template>/memory/tickets/<ticket>/`, next to the
+ * template's own notes, never over them. The template is where a future instance of the same role will look.
+ * A file already archived under that name is left as it is.
+ */
+export function archiveInstanceMemory(base: string, name: string): Result<{ archived: number; to: string | null }> {
+  let dir: string
+  try { dir = safeJoin(base, name) } catch { return { ok: false, error: 'invalid agent name' } }
+  const of = readInstanceOf(dir)
+  if (!of) return { ok: false, error: `"${name}" is not an instance` }
+  const memory = join(dir, 'memory')
+  if (!existsSync(memory)) return { ok: true, archived: 0, to: null }
+
+  let tplDir: string
+  try { tplDir = safeJoin(base, of.template) } catch { return { ok: false, error: 'invalid template name' } }
+  if (!existsSync(tplDir)) return { ok: false, error: `the template "${of.template}" is gone, the memory was not archived` }
+
+  const files = readdirSync(memory).filter((f) => {
+    const p = join(memory, f)
+    const st = lstatSync(p)
+    if (st.isSymbolicLink()) return false
+    return !(f === 'MEMORY.md' && st.isFile() && statSync(p).size === 0)
+  })
+  if (files.length === 0) return { ok: true, archived: 0, to: null }
+  const dest = join(tplDir, 'memory', 'tickets', ticketSlug(of.ticket) ?? 'ticket')
+  try {
+    mkdirSync(dest, { recursive: true })
+    // The filter runs on EVERY entry, at every depth: only regular files and directories are copied. A symlink
+    // nested in a subdirectory (or a socket, a pipe) stays out, so nothing in the archive can point out of the
+    // instance, whatever the instance wrote into its own memory.
+    const onlyFilesAndDirs = (src: string): boolean => {
+      const st = lstatSync(src)
+      return st.isFile() || st.isDirectory()
+    }
+    for (const f of files) {
+      cpSync(join(memory, f), join(dest, f), { recursive: true, force: false, errorOnExist: false, dereference: false, filter: onlyFilesAndDirs })
+    }
+    return { ok: true, archived: files.length, to: dest }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 /**

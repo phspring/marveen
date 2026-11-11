@@ -121,18 +121,49 @@ az `isAgentRunning()` kb. 42 helyen szerepel). Így egyik sem változik, és a k
   shell nélkül, és soha nem használ `GIT_DIR`/`GIT_WORK_TREE` változót (a környezetből ki is szűri). Az ágens a kész
   mappában sima `git -C <literális abszolút út>` parancsokat használ, amelyeket a kapu a telepítésen kívül átenged.
 - **Nem dob el munkát:** a törlés megtagadja a nem commitolt változást vagy a még egy remote által sem látott
-  commitot tartalmazó workspace-t, hacsak nincs `force`. Az ág megmarad.
+  commitot tartalmazó workspace-t, hacsak nincs `force`.
+- **Az ág sorsa:** az ág megmarad, ha van rajta saját commit (pusholt is). Az az ág, amely semmit nem tartalmaz
+  (minden commitja már az indulópontjában van), a workspace törlésekor törlődik, és ha egy korábbi kísérletből
+  maradt ilyen, a következő létrehozás is eltakarítja. Így egy üres ág sosem akadályozza ugyanannak a jegynek az
+  újrapróbálását, egy saját munkát tartalmazó ágat viszont soha nem érint.
+- **Épülő (stacked) workspace:** a `worktree` projektben egy jegy egy másik jegy **helyi ágára** is épülhet
+  (`planWorkspace(..., { stackOn })`), így viszi annak push-olatlan munkáját. Klón (almodul) projektben ez nem lehet,
+  mert a klón nem éri el egy másik klón push-olatlan ágát: ott a jegy vár.
 - **Árva workspace-ek** (`orphanWorkspaces`) csak jelentve vannak, a törlés emberi döntés.
+
+### A teljes folyamat (`src/web/ticket-environment.ts`)
+
+Két függvény köti össze a darabokat. Minden, ami a futó rendszerhez nyúl (session indítása és leállítása, kártya-komment,
+a többi kártya fájlköre), függőségként érkezik, így a teljes folyamat session nélkül tesztelhető.
+
+**`prepareTicketEnvironment(kártya, sablon)`** (amikor egy izoláló projekt kártyája `in_progress` lesz):
+
+1. Projekt-feloldás, majd a döntési fa. `shared` (nincs projekt, nem izoláló projekt, vagy olyan sablon, amelyből nem lehet
+   példány, pl. a főágens): a mai út, semmi mellékhatás.
+2. `queued`: semmi nem jön létre, a válasz megmondja, miért (`capacity`, `overlap`, vagy `stacking-unsupported` klón
+   projektben) és kire vár.
+3. Különben: workspace, majd példány-ágens, majd indítás. **Ha egy lépés elbukik, az előzőek visszavonódnak**, így egy
+   kártyának sosem marad félkész környezete (egy korábbról már meglévő környezetet nem bont le).
+4. Idempotens: a már kész környezetet adja vissza, és csak az újraindítást végzi el, ha a session leállt.
+
+**`releaseTicketEnvironment(kártya)`** (amikor a jegy lezárul):
+
+1. A példány leáll. Ha a leállítás nem sikerül, **semmi nem törlődik**.
+2. A példány memóriája a sablonhoz kerül (`memory/tickets/<jegy>/`). Ha ezt nem lehet megcsinálni, a példány megmarad:
+   az egyetlen másolattal együtt semmi nem törlődik.
+3. A példány és a workspace törlődik. Ha a workspace nem mentett munkát tartalmaz, **megmarad**, és egy komment szól
+   róla a kártyán.
+
+A kártya jegy-azonosítója az `external_ref`, ennek hiányában a kártya azonosítója.
 
 ---
 
 ## Mi van még hátra
 
-3. A kanban-dispatch és az ágens-indító használja. Ebből a döntési fa (`decideWorkspace`) már kész. Hátra van a bekötés: a
-   dispatch a döntés szerint hoz létre workspace-t, és az ágens-indító példány-mappát ad (`--continue` nélkül, az
-   indító-üzenet viszi az utat).
-4. Az `external_ref` mező a kártyán.
-5. Skill-könyvtár és hozzárendelések.
-6. A `store/projects.json` védelme a gate-ben, utána a setup/teardown parancsok.
+3. A kanban-route-ok bekötése, kapcsolóval (alapból ki): a `/move` `in_progress`-re a `prepareTicketEnvironment`-et hívja
+   (aszinkron), a lezárás és az archiválás a `releaseTicketEnvironment`-et, és a felszabadult hely után a sorban álló
+   kártyák újraindulnak. Az indító-üzenet viszi a workspace literális útját.
+4. Skill-könyvtár és hozzárendelések.
+5. A `store/projects.json` védelme a gate-ben, utána a setup/teardown parancsok.
 
 A teljes terv és a mért döntések a "Párhuzamos munkaterv" oldalon vannak.
