@@ -264,7 +264,7 @@ describe('release', () => {
     writeFileSync(join(agentsBase, r.instance, 'memory', 'learned.md'), 'a build quirk\n')
 
     const rel = await releaseTicketEnvironment(c, deps)
-    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: null })
+    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
     expect(stopped).toEqual([r.instance])
     expect(existsSync(join(agentsBase, r.instance))).toBe(false)
     expect(existsSync(r.workspace)).toBe(false)
@@ -281,7 +281,7 @@ describe('release', () => {
     if (r.kind !== 'ready') throw new Error('not ready')
     writeFileSync(join(r.workspace, 'work.txt'), 'x\n')
     git(r.workspace, 'add', '.'); git(r.workspace, 'commit', '-qm', 'work'); git(r.workspace, 'push', '-q', 'origin', 'feature/TVR-1')
-    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null })
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
     expect(existsSync(r.workspace)).toBe(false)
     expect(git(join(base, 'repo'), 'branch', '--list', 'feature/TVR-1').trim()).not.toBe('')
   })
@@ -302,11 +302,26 @@ describe('release', () => {
     writeFileSync(join(r.workspace, 'wip.txt'), 'not committed\n')
 
     const rel = await releaseTicketEnvironment(c, deps)
-    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: r.workspace })
+    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: r.workspace, keptNew: true })
     expect(existsSync(r.workspace)).toBe(true)
     expect(existsSync(join(agentsBase, r.instance))).toBe(false)
     expect(comments.at(-1)?.[1]).toContain('nem töröltem')
     expect(comments.at(-1)?.[1]).toContain(r.workspace)
+  })
+
+  it('a workspace that stays kept is not announced again: no second comment, nothing released, not new', async () => {
+    const deps = makeDeps(makeRegistry())
+    const c = card('c1', 'TVR-1', 'src')
+    const r = await prepareTicketEnvironment(c, 'cpp-developer', deps)
+    if (r.kind !== 'ready') throw new Error('not ready')
+    writeFileSync(join(r.workspace, 'wip.txt'), 'not committed\n')
+    await releaseTicketEnvironment(c, deps)
+    const told = comments.length
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: false, keptWorkspace: r.workspace, keptNew: false })
+    expect(comments.length).toBe(told)
+    // once the work is saved and the workspace goes, a later keep of the same card is announced afresh
+    rmSync(join(r.workspace, 'wip.txt'))
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
   })
 
   it('keeps a workspace with commits no remote has seen', async () => {
@@ -319,7 +334,7 @@ describe('release', () => {
     expect(await releaseTicketEnvironment(c, deps)).toMatchObject({ ok: true, keptWorkspace: r.workspace })
     git(r.workspace, 'push', '-q', 'origin', 'feature/TVR-1')
     // once pushed, a second release (instance already gone, workspace still there) removes it
-    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null })
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
     expect(existsSync(r.workspace)).toBe(false)
   })
 
@@ -348,9 +363,9 @@ describe('release', () => {
 
   it('a card with no environment, or in a project that does not isolate, releases nothing', async () => {
     const deps = makeDeps(makeRegistry())
-    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null })
-    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', 'shared'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null })
-    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', null), deps)).toEqual({ ok: true, released: false, keptWorkspace: null })
+    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
+    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', 'shared'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
+    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', null), deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
     expect(stopped).toEqual([])
   })
 
