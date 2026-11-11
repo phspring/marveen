@@ -340,10 +340,16 @@ function fireViaTicketEnvironment(card: KanbanCard, actor?: string | null): bool
   // unknown or skipped assignee stay on today's path, which also raises its alarms.
   const template = resolveTemplateFor(card, actor)
   if (!template) return false
-  // An instance that moves its own card to in_progress is picking up what it was sent: no second message.
+  // An instance that moves its own card to in_progress is picking up what it was sent: no second message. The pick-up
+  // counts as the dispatch, so it stamps the once-only guard: a card leaving in_progress clears it, and a card that
+  // came back (a rework round) without it would look "never dispatched" to the reconcile, which retries exactly those
+  // and would send the same instance a second message within a minute.
   if (actor) {
     const mover = readInstanceOf(agentDir(actor))
-    if (mover && mover.template === template) return true
+    if (mover && mover.template === template) {
+      markKanbanCardDispatched(card.id)
+      return true
+    }
   }
   void dispatchViaEnvironment(card, template, io).then((outcome) => {
     // not this feature's card after all (the assignee is itself an instance): today's path

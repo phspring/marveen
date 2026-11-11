@@ -41,7 +41,7 @@ vi.mock('../web/ticket-environment-runtime.js', async (importOriginal) => ({
   requestReconcile: () => rt.reconcile(),
 }))
 
-import { initDatabase, createKanbanCard, getKanbanCard, getKanbanComments, createAgentMessage } from '../db.js'
+import { initDatabase, createKanbanCard, getKanbanCard, getKanbanComments, createAgentMessage, getDb } from '../db.js'
 import { tryHandleKanban, ticketDispatchBridge } from '../web/routes/kanban.js'
 
 async function call(method: string, path: string, body: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -149,6 +149,40 @@ describe('the switch is on', () => {
     await flush()
     expect(flow.dispatch).not.toHaveBeenCalled()
     expect(messages()).toEqual([])
+  })
+
+  // Copilot finding on PR #8: the pick-up returned without stamping dispatched_at, so the card looked "never
+  // dispatched" and the reconcile (which retries every undispatched in-progress card) would send the same instance
+  // a second dispatch within a minute.
+  it('and it counts as dispatched: the once-only guard is set, so the reconcile does not send it again', async () => {
+    flow.isolating.mockReturnValue({ name: 'p' })
+    rt.template = 'dex'
+    inst.of = { template: 'dex' }
+    expect(getKanbanCard('t1')?.dispatched_at).toBeNull()
+    await move('t1', 'in_progress', 'dex-t1')
+    expect(getKanbanCard('t1')?.dispatched_at).not.toBeNull()
+    // what the reconcile retries: in progress, not archived, never dispatched
+    const stillWaiting = getDb().prepare("SELECT id FROM kanban_cards WHERE status = 'in_progress' AND archived_at IS NULL AND dispatched_at IS NULL").all()
+    expect(stillWaiting).toEqual([])
+  })
+
+  it('a rework round trip stays quiet: the instance moves its card to testing and back, and nothing is dispatched twice', async () => {
+    flow.isolating.mockReturnValue({ name: 'p' })
+    rt.template = 'dex'
+    flow.dispatch.mockResolvedValue('dispatched')
+    inst.of = null
+    await move('t1', 'in_progress')                          // the owner's move: dispatched through the environment
+    await flush()
+    expect(flow.dispatch).toHaveBeenCalledTimes(1)
+    getDb().prepare('UPDATE kanban_cards SET dispatched_at = 1 WHERE id = ?').run('t1')   // what a real dispatch stamps
+
+    inst.of = { template: 'dex' }
+    await move('t1', 'testing', 'dex-t1')                    // leaves in_progress: the stamp is cleared
+    expect(getKanbanCard('t1')?.dispatched_at).toBeNull()
+    await move('t1', 'in_progress', 'dex-t1')                // rework: the instance picks it up again
+    await flush()
+    expect(flow.dispatch).toHaveBeenCalledTimes(1)
+    expect(getKanbanCard('t1')?.dispatched_at).not.toBeNull()
   })
 
   it('an instance of a DIFFERENT template moving the card does not suppress the dispatch', async () => {
