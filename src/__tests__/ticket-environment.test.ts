@@ -23,6 +23,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'init.defaultBranch=develop', ...args], { cwd, encoding: 'utf-8', env: { ...process.env, ...IDENT } })
 }
 
+const MARKER_DIR = '.marveen-workspaces'
 let base: string
 let agentsBase: string
 let running: Set<string>
@@ -322,6 +323,26 @@ describe('release', () => {
     // once the work is saved and the workspace goes, a later keep of the same card is announced afresh
     rmSync(join(r.workspace, 'wip.txt'))
     expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
+  })
+
+  it('a workspace that vanished by another path is forgotten, so a later keep is announced again', async () => {
+    const deps = makeDeps(makeRegistry())
+    const c = card('c1', 'TVR-1', 'src')
+    const first = await prepareTicketEnvironment(c, 'cpp-developer', deps)
+    if (first.kind !== 'ready') throw new Error('not ready')
+    writeFileSync(join(first.workspace, 'wip.txt'), 'not committed\n')
+    expect(await releaseTicketEnvironment(c, deps)).toMatchObject({ keptWorkspace: first.workspace, keptNew: true })
+    // removed by hand: the marker is gone, nothing is left to release
+    rmSync(join(base, 'ws', MARKER_DIR), { recursive: true, force: true })
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
+    git(join(base, 'repo'), 'worktree', 'remove', '--force', first.workspace)
+    // the same card gets a new environment with unsaved work again: that keep is news
+    const again = await prepareTicketEnvironment(c, 'cpp-developer', deps)
+    if (again.kind !== 'ready') throw new Error('not ready')
+    writeFileSync(join(again.workspace, 'wip.txt'), 'not committed\n')
+    const told = comments.length
+    expect(await releaseTicketEnvironment(c, deps)).toMatchObject({ keptWorkspace: again.workspace, keptNew: true })
+    expect(comments.length).toBe(told + 1)
   })
 
   it('keeps a workspace with commits no remote has seen', async () => {
