@@ -156,13 +156,40 @@ a többi kártya fájlköre), függőségként érkezik, így a teljes folyamat 
 
 A kártya jegy-azonosítója az `external_ref`, ennek hiányában a kártya azonosítója.
 
+### A dispatch oldala (`src/web/ticket-environment-flow.ts`)
+
+Ez köti a fenti folyamatot a kanbanhoz. Minden hatás (session, adatbázis, az indító-üzenet) a `FlowIO`-n át érkezik.
+
+**`dispatchViaEnvironment(kártya, sablon)`**, amikor egy kártya `in_progress` lett egy izoláló projektben. A válasz:
+
+| Válasz | Jelentés |
+|---|---|
+| `shared` | Nem ennek a funkciónak a kártyája (nem izoláló projekt, vagy a címzett maga is példány): a mai út |
+| `busy` | Ugyanezt a kártyát épp előkészíti egy másik hívás (egy kártyára egyszerre egy előkészítés fut) |
+| `queued` | Várnia kell: a kártyán egy komment megmondja, miért és kire, **egyszer** (nem ismétli minden próbánál) |
+| `failed` | Jelentve (a meglévő "nem kapott üzenetet" riasztás), és egyre hosszabb szünettel újrapróbálva (1, 2, 4 … legfeljebb 30 perc) |
+| `dispatched` | A **példány** kapta a kártyát, a kétszeri küldést védő jelzés (`dispatched_at`) csak most áll be |
+
+A hibát az első és az ötödik próbánál jelenti, köztük nem: percenként ismételve elnyomná azt az egy esetet, amelyik számít.
+Ha a példány már kész, de az üzenet küldése hibázik, az újrapróbálás a meglévő környezetet használja, nem csinál újat.
+
+**`reconcileTicketEnvironments()`**, a biztonsági háló. Ez az egyetlen hely, amely kezeli, ahogy egy kártya elhagyhatja az
+aktív oszlopokat (route-ok, az archiváló söprés, a táblát közvetlenül író szkript), ezért egyiknek sem kell saját horog:
+
+1. Minden környezet, amelynek a kártyája nem `in_progress`, `waiting` vagy `testing` (kész, visszatett, archivált vagy
+   törölt), felszabadul. Soha nem `force`-szal: a nem mentett munkát tartalmazó workspace megmarad.
+2. Minden `in_progress` kártya, amelyet még nem küldtek ki (várt, vagy hibázott), újra próbálkozik. A felszabadítás az újrapróbálás
+   **előtt** fut, ezért a lezárt jegy helyére a sorban álló jegy ugyanabban a körben bekerül.
+
+A `waiting` és a `testing` oszlopban a környezet megmarad, mert a munka még nem ért véget (teszt, review, várakozás).
+
 ---
 
 ## Mi van még hátra
 
-3. A kanban-route-ok bekötése, kapcsolóval (alapból ki): a `/move` `in_progress`-re a `prepareTicketEnvironment`-et hívja
-   (aszinkron), a lezárás és az archiválás a `releaseTicketEnvironment`-et, és a felszabadult hely után a sorban álló
-   kártyák újraindulnak. Az indító-üzenet viszi a workspace literális útját.
+3. A tényleges bekötés, kapcsolóval (`TICKET_ENVIRONMENTS`, alapból ki): a `/move` `in_progress`-re a `dispatchViaEnvironment`-et
+   hívja (aszinkron, a mozgatást nem blokkolja), egy időzítő futtatja a `reconcileTicketEnvironments`-et, és a dashboard
+   indulásakor bekapcsol.
 4. Skill-könyvtár és hozzárendelések.
 5. A `store/projects.json` védelme a gate-ben, utána a setup/teardown parancsok.
 
