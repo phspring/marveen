@@ -139,6 +139,12 @@ export const PROTECTED_INSTALL_PATHS = [
   // The network-target origins recorded at the last boot (NETTARGETENV1104, Dani 68849): the drift check compares
   // against it, so a pre-written or deleted record would hide a target change.
   { rel: 'store/.net-target-hosts.json' },
+  // The owner-gated agent settings the dashboard keeps in store/ (GATEFILES1110): custom-providers.json holds each
+  // provider's baseUrl, where an agent's whole prompt goes (owner-only on the API, APIAGENTWRITE1104), and
+  // context-guard.json the context-guard values (raising one is an owner session on the API, OWNERGATE3-1104). Only the
+  // dashboard writes them, through those routes; no skill, script or hook writes them with a tool call.
+  { rel: 'store/custom-providers.json' },
+  { rel: 'store/context-guard.json' },
   // The main checkout's git wiring (Samu 56299 2, Dani 56284): its remote, its remote-tracking refs and its hooks. A
   // worktree shares them, so a ref or a URL changed from a worktree is changed for the install's pull as well.
   { rel: '.git/config' },
@@ -170,6 +176,16 @@ export const PROTECTED_INSTALL_PATHS = [
 //   store/credential-gate.json          -- mode: warn turns the credential gate into a warning (missing today)
 //   store/egress-measure-hosts.json     -- a host there lets curl -q GET/HEAD through (bash-egress-parser.mjs)
 //   store/.fleet-memgate-observe        -- its presence puts the fleet memory gate into observe-only (fleet-memory-gate.sh)
+//   store/.channel-unconfigured         -- channels.sh's "the main session runs without its channel" marker
+//                                          (CHANNELUNCONF1110, Dani #2691 K1): only channels.sh writes it, never a tool
+//                                          call; a written one would ask the monitor to leave the main agent alone
+//   store/claude-plans.json             -- which Claude subscription each agent runs on: a plan's configDir, its vault
+//                                          secret id and its label (PLANSFILEGATE1111, Samu 75712). The owner-gated
+//                                          POST /api/claude-plans writes it (OWNERGATE2-1104); a direct write went around
+//                                          that gate, and a label reaches the main agent's rotation prompt. Only the
+//                                          dashboard writes it (claude-plans.ts, atomicWriteFileSync); no skill, script or
+//                                          scheduled task does with a tool call (measured 2026-11-11), so the main agent
+//                                          stays free, as with the .env
 export const SUBAGENT_PROTECTED_INSTALL_PATHS = [
   { rel: '.env' },
   { rel: 'store/provenance-gate-rules.json' },
@@ -177,6 +193,8 @@ export const SUBAGENT_PROTECTED_INSTALL_PATHS = [
   { rel: 'store/credential-gate.json' },
   { rel: 'store/egress-measure-hosts.json' },
   { rel: 'store/.fleet-memgate-observe' },
+  { rel: 'store/.channel-unconfigured' },
+  { rel: 'store/claude-plans.json' },
   // The user's shared Claude settings (Dani 67840/67841): every agents/*/.claude-config/settings.local.json is a
   // SYMLINK to ~/.claude/settings.local.json, a real file the main agent loads too, so a sub-agent writing it (through
   // its symlink or straight) changes every session's settings. The main agent writes them legitimately: sub-agent only.
@@ -261,6 +279,20 @@ export const SUBAGENT_PROTECTED_INSTALL_PATHS = [
   // or a directory's content copied, into the agent directory itself.
   { rel: 'agents/*/.claude/channels/telegram', pattern: true },
   { rel: 'agents/*/.claude/channels', pattern: true },
+  // Every agent's agent-config.json (GATEFILES1110): its customProvider (owner-only on the API, APIAGENTWRITE1104),
+  // model, oauthTokenFile and the rest, read on every spawn. The main agent's skills write it directly (model switch,
+  // displayName, oauthTokenFile, a hand-made agent), so this is the sub-agent list: any agent's file, not only the
+  // caller's own. Stated limit, as for agents/*/.claude/settings.json: a pattern has no ancestor, so renaming a whole
+  // agents/<name> directory is not judged here. It is the first protected name without a leading dot in a sub-agent's
+  // own directory, so a bare glob there matches it: noBareGlob keeps the #2514 rule (a QUOTED `count(*)` stays free in
+  // the caller's own dir), while an unquoted `cp x *` there still matches, as the shell would expand it.
+  { rel: 'agents/*/agent-config.json', pattern: true, noBareGlob: true },
+  // The token-plan launch outcomes (SUBPLANTOKEN1110 follow-up, Dani 75495 (2)): store/plan-token-launch/<name>.json is
+  // what POST /api/claude-plans/rotate reads back after a sub-agent's restart, and what the agent summary shows. A
+  // sub-agent writing a fresh state:"plan-token" for another agent inside the 20 s read-back window would make the rotate
+  // answer 200 for a launch that failed. Written by the dashboard and by the launched shell's resolve-plan-token-env.mjs
+  // (neither is a tool call), never by a sub-agent: the whole directory, as a directory.
+  { rel: 'store/plan-token-launch', dir: true },
 ]
 
 // Is the hook's caller a sub-agent? The main agent runs in the install root (its CLAUDE_PROJECT_DIR), a sub-agent in
@@ -420,15 +452,19 @@ export function installTargets(root = INSTALL_ROOT, subAgent = false, projectDir
 // protected directory every relative word is a candidate.
 const PATH_LIKE_RX = /\/|\.\w|^~/
 export const TARGET_SEGMENT_NAMES = new Set(['settings.json', 'settings.local.json', 'hooks', 'self-pace-gate.mjs',
-  'extra-hooks.json', 'autonomy-config.json', 'agent-sender-role-gates.json', 'config-overrides.json', '.owner-slack-target', '.net-target-hosts.json', '.claude', 'scripts', 'store', '.', '..', '~',
+  'extra-hooks.json', 'autonomy-config.json', 'agent-sender-role-gates.json', 'config-overrides.json', '.owner-slack-target', '.net-target-hosts.json', 'custom-providers.json', 'context-guard.json', '.claude', 'scripts', 'store', '.', '..', '~',
   '.env', 'provenance-gate-rules.json', 'outgoing-copy-gate-rules.json', 'credential-gate.json', 'egress-measure-hosts.json', '.fleet-memgate-observe',
+  // GATEFILES1110: an agent's agent-config.json, from its parent (`cd agents/samu && sed -i ... agent-config.json`)
+  'agent-config.json',
   // PLUGINCODEWRITE1104 (E3): a bare plugin-tree name from its parent (`cd ~/.claude && rm -rf plugins`)
   'plugins', 'marveen-local-plugins', 'gromzo',
   // CPDESTDIR1104 (Dani B2, Samu 69132): the same for the start-loaded trees a session reads (`cd ~/.claude && rm -rf
   // skills` named no path-like word and passed)
   'rules', 'skills', 'agents', 'commands', 'output-styles',
   // CHANSTATEWRITE1104: the channel state dirs' trust directories, from their parent
-  'progress', 'approved'])
+  'progress', 'approved',
+  // SUBPLANTOKEN1110 (Dani 75621): the token-plan launch status dir, from its parent (`cd store && rm -rf plan-token-launch`)
+  'plan-token-launch'])
 const GLOB_CHAR_RX = /[*?[{]/
 // A shell glob does not match a leading-dot name unless its own segment starts with a dot (bash without dotglob,
 // zsh without GLOB_DOTS). Without this, a bare `*` in a sub-agent's own directory matched its .mcp.json
@@ -574,6 +610,39 @@ export function reShellsText(text) {
     }
     return RESHELL_NAMES.has(name)
   })
+}
+
+// GATESCRIPTARG1111 (Samu 75780 A, Boni 75773): `python3 x.py "select count(*) ..."` is a SCRIPT FILE run with a quoted
+// argument. The shell never expands a glob in quotes, and the script's own code is not seen by this gate (the stated limit:
+// a script can write any path itself, it needs no glob for it), so the quoted argument's glob characters are data, as
+// they are for sqlite3. Such a segment is left out of the re-shell reading; the rest of the command is read as before.
+// Narrow on purpose: only python (any version) and node by their bare or system-dir name, only the harmless python flags
+// before the script, a script word that is a plain name (no `-`, no glob, no `$`), no `$` in any word (an unquoted
+// expansion is split and globbed by the shell), and no heredoc body. Inline code (-c, -e, -p, --eval, -m, stdin `-`),
+// bun/deno (their `run` goes to package scripts) and the shell family stay strict; an UNQUOTED glob still counts
+// (unquotedBareGlob), since the shell expands it before the script starts.
+const SCRIPT_PY_RX = /^(?:python(?:\d+(?:\.\d+)*)?|pypy\d*)$/
+const SCRIPT_NODE_RX = /^(?:node|nodejs)$/
+const PY_SCRIPT_FLAGS = new Set(['-I', '-S', '-B', '-u', '-E', '-s', '-O', '-OO', '-q'])
+export function scriptFileRun(words) {
+  if (!words || !words.length || words.some((w) => w.dollar || String(w.value).includes('$'))) return false
+  const name = commandName(words)
+  const py = SCRIPT_PY_RX.test(name)
+  if (!py && !SCRIPT_NODE_RX.test(name)) return false
+  let i = 1
+  for (; i < words.length && String(words[i].value).startsWith('-'); i++) {
+    if (!py || !PY_SCRIPT_FLAGS.has(words[i].value)) return false
+  }
+  const script = i < words.length ? String(words[i].value) : ''
+  return script !== '' && !/[*?[{]/.test(script)
+}
+// The command text the re-shell reading sees: every segment but the script-file runs above (unsplittable: the whole text).
+export function reShellText(cmd, root = INSTALL_ROOT) {
+  const segs = shellSegments(cmd, { surface: 'security', projectRoot: root })
+  if (!segs) return cmd
+  const kept = segs.filter((seg) => (seg.bodies?.length ?? 0) > 0 || !scriptFileRun(shellWords(seg.own)))
+  if (kept.length === segs.length) return cmd
+  return kept.map((seg) => [seg.own, ...(seg.bodies ?? [])].join('\n')).join('\n')
 }
 
 // INSTRFILES1104 A: the text a glob reading sees when no program in the command re-runs text as shell code
@@ -1234,7 +1303,8 @@ export function installFileDeny(command, opts = {}) {
   const decoded = cmd.includes('\\') ? decodePrintEscapes(cmd) : ''
   if (!hitsIn(cmd, ctx).length && !(decoded && hitsIn(decoded, ctx).length) && !IMPLICIT_WRITER_RX.test(cmd) && !GIT_WORD_RX.test(cmd) && !CLAUDE_DIR_WORD_RX.test(cmd) && !COPIER_WORD_RX.test(cmd)) return false
   // WORKERCFGDIR1104: read over the WHOLE command, a pipe carries a quoted glob to the next segment (`printf '*' | xargs rm`)
-  ctx.reShell = reShellsText(cmd)
+  // GATESCRIPTARG1111: a python/node script-file run is no re-shelling program for its quoted arguments (reShellText)
+  ctx.reShell = reShellsText(reShellText(cmd, ctx.root))
   ctx.dotglob = namesDotglob(cmd, ctx.reShell)
   // the git environment that redirects a remote or points git at another repo or work tree, anywhere in a git command
   if (GIT_WORD_RX.test(cmd) && GIT_ENV_RX.test(cmd)) return 'git'
@@ -1774,7 +1844,7 @@ export const DB_GATE_MSG =
 export const INSTALL_FILE_GATE_MSG =
   'Telepitesi kapu-fajl irasa TILTOTT (APPROVALDBGATE1030, minden ugynokre, a fo ugynokre is). NEM irhatod a ' +
   'futo telepites .claude/settings.json, .claude/settings.local.json, scripts/hooks/, scripts/self-pace-gate.mjs, ' +
-  'store/extra-hooks.json, store/autonomy-config.json, store/agent-sender-role-gates.json, store/config-overrides.json, store/.owner-slack-target es store/.net-target-hosts.json fajljat, ' +
+  'store/extra-hooks.json, store/autonomy-config.json, store/agent-sender-role-gates.json, store/config-overrides.json, store/.owner-slack-target, store/.net-target-hosts.json, store/custom-providers.json es store/context-guard.json fajljat (GATEFILES1110: ezeket az owner-kapus API-ut irja), ' +
   'sem BARMELY agens agents/<nev>/.claude/settings.json, settings.local.json es .claude-config/settings.json fajljat (ezeket csak a dashboard irja; Write/Edit, cp/mv/tee/>/sed -i/python, symlinken ' +
   'vagy ..-on at sem; tar -x/unzip/patch/cpio/7z celkonyvtar nelkul a telepites gyokereben vagy a scripts/-ben sem). ' +
   'Egy git worktree SAJAT masolata szabad: ott fejlessz, es PR-ral kerul a telepitesbe. ' +
@@ -1790,7 +1860,7 @@ export const SUBAGENT_FILE_GATE_MSG =
   'Telepites .env / kapu-szabalyfajl irasa TILTOTT (ENVRELAXGATE1104, sub-agensre). NEM irhatod a futo telepites ' +
   '.env fajljat (SUDO_AGENTS, MAIN_AGENT_ID es a kapuk lazito kapcsoloi innen jonnek), sem a store/provenance-gate-rules.json, ' +
   'store/outgoing-copy-gate-rules.json, store/credential-gate.json, store/egress-measure-hosts.json es ' +
-  'store/.fleet-memgate-observe fajlt, sem a SAJAT projekt-konyvtarad .claude/settings.json es settings.local.json fajljat, sem a SAJAT CLAUDE_CONFIG_DIR settings.json es settings.local.json fajljat, sem a ~/.claude/settings.json es settings.local.json fajlt ' +
+  'store/.fleet-memgate-observe es store/claude-plans.json fajlt (ez utobbit az owner-kapus /api/claude-plans irja), sem a SAJAT projekt-konyvtarad .claude/settings.json es settings.local.json fajljat, sem a SAJAT CLAUDE_CONFIG_DIR settings.json es settings.local.json fajljat, sem a ~/.claude/settings.json es settings.local.json fajlt ' +
   '(ott elnek a kapu-hookjaid), sem a fo agens izolalt config-konyvtaranak (.channels-config) egyetlen valodi fajljat (settings.json, settings.local.json, .claude.json, plugins/*.json), ' +
   'sem egy MCP-szerverlistat (ENVRELAXMCPCFG1104: egy oda irt szerver a kovetkezo indulaskor parancskent fut): ' +
   'barmely agens agents/<nev>/.mcp.json es .claude-config/.claude.json fajljat, a SAJAT CLAUDE_CONFIG_DIR .claude.json-jat, ' +
@@ -1798,6 +1868,8 @@ export const SUBAGENT_FILE_GATE_MSG =
   'sem a Claude Code plugin-fajat (~/.claude/plugins, a telepites plugins/ mappaja, ~/marveen-local-plugins, a config-direk plugins/ mappaja es registry-jei) es a kozos ~/.claude/agents, skills, hooks fat, ' +
   'a `claude plugin` paranccsal sem (csak list, validate, marketplace list, --help), es `--plugin-dir`-rel sem (PLUGINCODEWRITE1104; plugin-deploy a fo agensen at); ' +
   'sem barmely agens Telegram inbound-evidence naplojat (agents/<nev>/.claude/channels/telegram/inbound-evidence.jsonl es .1, es a folotte allo telegram/ es channels/ konyvtarat celzo parancsot; TGINREPLAYGATE1104: a pluginja irja, nem eszkozhivas); ' +
+  'sem barmely agens agents/<nev>/agent-config.json fajljat (GATEFILES1110: customProvider, model, oauthTokenFile; az API-n owner-kapus, valtoztatas a fo agensen at); ' +
+  'egy python/node SZKRIPTFAJLNAK idezve atadott argumentum adat, a csillaga nem minta (GATESCRIPTARG1111: python3 x.py "count(*)" szabad; a -c/-e kod, a shell es az idezetlen * szigoru marad); ' +
   'ha a cwd egy ilyen fan belul van, minden nem-olvaso parancs tilt: elobb lepj ki onnan. ' +
   'amit ez a kapu NEM lat (limit): egy nem a szegmens elejen allo claude-ot: szkriptbol, bash -c / sh -c-bol, xargs-szal, $(which claude)-dal, valtozobol (C=claude; $C) vagy npx @anthropic-ai/claude-code alakban inditottat. ' +
   'Mindezt: letrehozni es torolni sem (Write/Edit, cp/mv/rm/tee/>/sed -i/python, symlinken vagy ..-on at sem). ' +

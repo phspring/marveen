@@ -2,7 +2,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, lstatS
 import { encodeClaudeProjectDir } from '../claude-project-dir.js'
 import { join, dirname, resolve } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { AGENT_LOCAL_BASE_URL } from '../config.js'
 import { makeLazyBinResolver } from '../platform.js'
 import { logger } from '../logger.js'
@@ -46,12 +46,16 @@ import { filterMainGromzoIds, mainGromzoPrimaryReady, MAIN_GROMZO_PLUGIN_ID } fr
 import { ensureGromzoMarketplace } from './gromzo-marketplace.js'
 import { probeExtraPluginsInTree, combineLiveness } from './extra-channel-liveness.js'
 import { loadCustomProvider, type CustomProviderDef } from './custom-providers.js'
-import { decideOwnOauthToken, ownOauthTokenExport, ownOauthLaunchVerdict } from './agent-oauth-token-file.js'
+import { decideOwnOauthToken, ownOauthTokenExport, ownOauthLaunchVerdict, resolveOauthTokenFileSetting } from './agent-oauth-token-file.js'
 import { inheritedAuthUnset } from './inherited-auth-unset.js'
 import { copyProjectsOnce, currentAuthKeyMode, hostApiKey, isolatedDirReady, stampAllowed } from './auth-key-mode.js'
 import { worksourceRootFor } from './worksource-queue.js'
 import { syncBashSandboxSettings } from './bash-sandbox.js'
 import { resolveAgentConfigDir, readClaudePlans, getClaudePlan } from './claude-plans.js'
+import {
+  planTokenLaunchDecision, planTokenExport, planTokenStatusPath, writePlanTokenStatus, clearPlanTokenStatus,
+  shouldAlertPlanToken, RESOLVE_PLAN_TOKEN_SCRIPT, type PlanTokenLaunchDecision,
+} from './plan-token-launch.js'
 import { readClaudePlansState } from './claude-plans-state.js'
 import { provisionMemoryBoundaryDir } from './memory-boundary.js'
 import { renameSharedCredentialsIfSafe } from './claude-credentials-guard.js'
@@ -414,6 +418,47 @@ let sharedConfigCollisionAlerted = false
 
 export function resetSharedConfigCollisionAlert(): void {
   sharedConfigCollisionAlerted = false
+}
+
+// SUBPLANTOKEN1110: a token-plan sub-agent that cannot run on its plan's token
+// is NOT started. Loud on every path: the error log, the status file the
+// dashboard's agent state shows, and an owner alert (throttled per agent and
+// reason, so an auto-restart loop does not flood the channel). The returned
+// error goes back to the caller (dashboard start/restart, rotate endpoint).
+function refusePlanTokenLaunch(name: string, secretId: string, planId: string | undefined, reason: string): { ok: false; error: string } {
+  logger.error({ name, plan: planId, secretId, reason }, 'claude-plan: token plan cannot be used -- agent NOT started (no fallback to the fleet token)')
+  try {
+    writePlanTokenStatus(name, { state: 'refused', secretId, at: Date.now(), reason, ...(planId ? { planId } : {}) })
+  } catch (err) {
+    logger.error({ name, err: err instanceof Error ? err.name : 'error' }, 'claude-plan: could not write the plan-token launch status')
+  }
+  if (shouldAlertPlanToken(name, reason, Date.now())) {
+    void notifyChannel(
+      `⚠️ ${name} nem indult el: a Claude-csomagja (${planId ?? '?'}) tokenes, de nem használható (${reason}). A flotta-tokenre NEM esett vissza. Javítás: a csomag tokenje a vaultban (${secretId}), vagy másik csomag az ügynöknek.`,
+    ).catch(() => { /* notifyChannel logs internally */ })
+  }
+  return { ok: false, error: `claude-plan: ${reason}` }
+}
+
+/**
+ * SUBPLANTOKEN1110: the rotate endpoint's check BEFORE it writes a token plan
+ * into a sub-agent's config: the same decision the launcher makes, from the
+ * same reads (the launcher decides again at start). The secret's value is read
+ * only to test that it is non-empty and is dropped at once.
+ */
+export function planTokenPreflight(name: string, tokenSecretId: string): PlanTokenLaunchDecision {
+  let secretPresent = false
+  try { secretPresent = !!(getSecret(tokenSecretId) ?? '').trim() } catch { secretPresent = false }
+  const isCustom = readAgentCustomProvider(name) !== null
+  return planTokenLaunchDecision({
+    tokenSecretId,
+    isMainAgent: name === MAIN_AGENT_ID,
+    isClaudeModel: !isCustom && resolveOpenRouterModel(readAgentModel(name)).startsWith('claude-'),
+    isCustomProvider: isCustom,
+    authMode: readAgentAuthMode(name),
+    hasOwnTokenFile: resolveOauthTokenFileSetting(readFileOr(join(agentDir(name), 'agent-config.json'), '{}')).state !== 'unset',
+    secretPresent,
+  })
 }
 
 // Loud, owner-facing alert routed via notifyChannel (direct Bot API POST from
@@ -1129,7 +1174,10 @@ export function sharedEnvAuthKeysCopiedTo(name: string): string[] {
     if (resolveMainAgentConfigDir()) return []
     cfg = mainAgentConfigDirIfSeparate()
   } else {
-    if (resolveAgentConfigDir(name).configDir) return []
+    // A token-plan agent (SUBPLANTOKEN1110) runs in its own isolated dir, provisioned from the shared file like
+    // the fleet-token agents, so it keeps the warning; a configured dir or a configDir plan does not.
+    const resolved = resolveAgentConfigDir(name)
+    if (resolved.configDir && !resolved.tokenSecretId) return []
     cfg = join(agentDir(name), '.claude-config')
   }
   if (!cfg) return []
@@ -2042,6 +2090,41 @@ function captureTmux(target: string | null | TmuxTarget, tmuxArgs: string[], opt
   return execFileSync(inv.file, inv.args, { timeout: opts.timeout ?? (host ? 8000 : 3000), encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
+// Extra time after the execFile timeout before the fallback timer gives up on the child.
+const CAPTURE_ASYNC_GRACE_MS = 1000
+
+// Async capture avoids blocking the dashboard event loop (card e7ca41a3).
+// SIGKILL on timeout plus a fallback timer: a child that ignores SIGTERM or never exits cannot hold the call open.
+function captureTmuxAsync(target: string | null | TmuxTarget, tmuxArgs: string[], opts: { timeout?: number } = {}): Promise<string> {
+  const { host } = resolveTarget(target, tmuxArgs)
+  const inv = tmuxInvocationFor(tmuxArgs, target)
+  const timeout = opts.timeout ?? (host ? 8000 : 3000)
+  return new Promise<string>((resolve, reject) => {
+    let settled = false
+    let fallback: ReturnType<typeof setTimeout> | undefined
+    const child = execFile(inv.file, inv.args, { timeout, killSignal: 'SIGKILL', encoding: 'utf-8' }, (err, stdout, stderr) => {
+      if (settled) return
+      settled = true
+      if (fallback) clearTimeout(fallback)
+      // A child we killed counts as a timeout even if it exited 0 before the signal landed; the sync twin throws ETIMEDOUT there.
+      if (err || child?.killed) {
+        reject(Object.assign(err ?? Object.assign(new Error('tmux timed out'), { code: 'ETIMEDOUT' }), { stdout, stderr }))
+        return
+      }
+      resolve(stdout)
+    })
+    fallback = setTimeout(() => {
+      if (settled) return
+      settled = true
+      child?.kill?.('SIGKILL')
+      reject(Object.assign(new Error('tmux timed out'), { code: 'ETIMEDOUT', stdout: '', stderr: '' }))
+    }, timeout + CAPTURE_ASYNC_GRACE_MS)
+    fallback.unref?.()
+    // The sync twin runs with stdin 'ignore'; close ours so an ssh-routed call never waits on it.
+    child?.stdin?.end()
+  })
+}
+
 // Tri-state run state. For a remote agent a failed list-sessions query is
 // 'unreachable' (the session is almost certainly still alive on the laptop --
 // an SSH drop must never read as 'stopped', which would trigger a wrong
@@ -2792,6 +2875,48 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
     // Operator-configured, before any auto-isolation below (BYOSUBUNSET1018).
     const configuredConfigDir = claudeConfigDir !== null
     let oauthTokenEnv = ''
+    // SUBPLANTOKEN1110: a token-mode plan. Decided and checked BEFORE the
+    // launch: the agent either runs on the plan's own token in its isolated
+    // dir, or is not started at all -- never on the fleet token in silence.
+    let planToken: { secretId: string; statusPath: string } | null = null
+    if (planResolution.tokenSecretId) {
+      let secretPresent = false
+      try { secretPresent = !!(getSecret(planResolution.tokenSecretId) ?? '').trim() } catch { secretPresent = false }
+      const decision = planTokenLaunchDecision({
+        tokenSecretId: planResolution.tokenSecretId,
+        isMainAgent: name === MAIN_AGENT_ID,
+        isClaudeModel: isClaude,
+        isCustomProvider: isCustom,
+        authMode,
+        hasOwnTokenFile: ownTokenFile !== null,
+        secretPresent,
+      })
+      const planId = readAgentClaudePlan(name) ?? undefined
+      if (decision.kind === 'refuse') {
+        return refusePlanTokenLaunch(name, planResolution.tokenSecretId, planId, decision.reason)
+      }
+      if (decision.kind === 'plan-token') {
+        const isolated = ensureIsolatedChannelConfigDir(name, hasChannel ? agentProvider : null, extraLaunch.pluginIds)
+        if (!isolated) {
+          return refusePlanTokenLaunch(name, decision.secretId, planId, 'plan-token-isolated-config-dir-not-provisioned')
+        }
+        claudeConfigDir = isolated
+        const statusPath = planTokenStatusPath(name)
+        writePlanTokenStatus(name, { state: 'pending', secretId: decision.secretId, at: Date.now(), ...(planId ? { planId } : {}) })
+        oauthTokenEnv = planTokenExport({
+          secretId: decision.secretId,
+          nodeBin: process.execPath,
+          scriptPath: RESOLVE_PLAN_TOKEN_SCRIPT,
+          fleetTokenPath: FLEET_OAUTH_TOKEN_PATH,
+          failuresLogPath: join(STORE_DIR, 'channels-failures.log'),
+          statusPath,
+        })
+        planToken = { secretId: decision.secretId, statusPath }
+        logger.info({ name, plan: planId, secretId: decision.secretId }, 'claude-plan: sub-agent launches on its plan token (isolated config dir, no fleet fallback)')
+      }
+    } else if (name !== MAIN_AGENT_ID) {
+      clearPlanTokenStatus(name)
+    }
     // authMode 'own_team' (OWNTEAMVAK914): the operator explicitly opted this
     // agent OUT of the fleet credential -- it authenticates from its OWN
     // /login credential (dashboard auth-flow -> /login in the agent's tmux).
@@ -2930,6 +3055,10 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
       )
       return { ok: false, error: 'oauthTokenFile: own token did not reach the launch env' }
     }
+    // SUBPLANTOKEN1110: the claim is checked against the launch env itself, like the own-token one above.
+    if (planToken && !oauthTokenEnv.includes(`--strict --status ${shSingleQuote(planToken.statusPath)}`)) {
+      return refusePlanTokenLaunch(name, planToken.secretId, readAgentClaudePlan(name) ?? undefined, 'plan-token-not-in-launch-env')
+    }
     if (ownLaunch.kind === 'own') {
       logger.info(
         { name, path: ownLaunch.path, fingerprint: ownLaunch.fingerprint },
@@ -2967,7 +3096,9 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
     // the very value stamped, not whatever the tmux global env carried since channels.sh last started (a rotated key
     // would otherwise meet a stamp for the new one and stop at the prompt). By reference, never in argv.
     let stampKey = apiKeyForApproval
-    if (!stampKey && keyMode === 'keyonly' && needsFleetOauth && !configuredConfigDir && !ownTokenFile) {
+    // SUBPLANTOKEN1110 follow-up (Dani 75495 (1)): a token-plan launch is excluded by name, not only through its
+    // configured dir -- the host key outranks the OAuth token, so it must never ride along with the plan's token.
+    if (!stampKey && keyMode === 'keyonly' && needsFleetOauth && !configuredConfigDir && !ownTokenFile && !planToken) {
       const hostKey = hostApiKey(join(PROJECT_ROOT, '.env')).trim()
       if (hostKey) {
         apiKeyEnv = `export ANTHROPIC_API_KEY=${launchSecretRef(`agent-${name}-api-key`, hostKey)} && `
@@ -3056,7 +3187,8 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
     // credential (own_team, a configured config dir, its own token file) also
     // drops an inherited ANTHROPIC_API_KEY, which outranks every OAuth path
     // (BYOSUBUNSET1018, inherited-auth-unset.ts).
-    const byoUnsetEnv = inheritedAuthUnset({ needsFleetOauth, isOwnTeam, configuredConfigDir, ownTokenFile: ownTokenFile !== null, keyMode })
+    // A plan token is an own token like oauthTokenFile: the inherited OAuth token AND API key are unset before its export.
+    const byoUnsetEnv = inheritedAuthUnset({ needsFleetOauth, isOwnTeam, configuredConfigDir, ownTokenFile: ownTokenFile !== null || planToken !== null, keyMode })
     // Slack plugin is third-party; its "not on approved allowlist" check is
     // bypassed via `allowedChannelPlugins` in /Library/Application Support/ClaudeCode/managed-settings.json.
     const auditLogEnv = agentProvider === 'slack' ? ` && export SLACK_AUDIT_LOG="${agentChannelDir}/audit.jsonl"` : ''
@@ -3524,7 +3656,7 @@ export async function dismissResumeSummaryModalIfPresent(session: string, host: 
 // which runs its own pre-emit dismissals, so skipping loses nothing.
 export async function clearFeedbackModalAndRecheck(session: string, host: string | null = null): Promise<boolean> {
   try {
-    const pane = capturePane(session, host)
+    const pane = await capturePaneAsync(session, host)
     if (pane == null || !detectsFeedbackDraftModal(pane)) return false
     const releaseLane = tryAcquireSessionSendLane(session, host)
     if (!releaseLane) {
@@ -4732,6 +4864,15 @@ export function capturePane(session: string, host: string | null = null): string
   }
 }
 
+/** Same contract as capturePane, without blocking the event loop; the sync twin stays for synchronous callers (withTmuxBatch accepts only synchronous functions). */
+export async function capturePaneAsync(session: string, host: string | null = null): Promise<string | null> {
+  try {
+    return stripAllAnsi(stripSessionTitleBanner(await captureTmuxAsync(host, ['capture-pane', '-t', exactTmuxTarget(session), '-e', '-p'])))
+  } catch {
+    return null
+  }
+}
+
 /**
  * REMOTESAWTURN1022: newest transcript write of a remote agent, as a local-clock
  * epoch ms, read over the existing ssh path. The local clock is taken before the
@@ -4833,6 +4974,15 @@ export function capturePaneWithHistory(session: string, historyLines = 500, host
 export function captureParkedInputView(session: string, host: string | null = null): string | null {
   try {
     return stripGhostSuggestion(captureTmux(host, ['capture-pane', '-t', exactTmuxTarget(session), '-e', '-p']))
+  } catch {
+    return null
+  }
+}
+
+/** Same contract as captureParkedInputView, without blocking the event loop; the sync twin stays for synchronous callers (withTmuxBatch accepts only synchronous functions). */
+export async function captureParkedInputViewAsync(session: string, host: string | null = null): Promise<string | null> {
+  try {
+    return stripGhostSuggestion(await captureTmuxAsync(host, ['capture-pane', '-t', exactTmuxTarget(session), '-e', '-p']))
   } catch {
     return null
   }
@@ -4941,19 +5091,19 @@ export async function isSessionReadyForPrompt(
   // the plain view says 'typing' do we pay for the second (-e, dim-stripped)
   // capture to decide whether anything REAL is parked (see
   // idleConsideringDimGhost / captureParkedInputView).
-  const idleOrGhost = (plain: string): boolean =>
-    idleConsideringDimGhost(plain, detectPaneState(plain) === 'typing' ? captureParkedInputView(session, host) : null)
-  const first = capturePane(session, host)
+  const idleOrGhost = async (plain: string): Promise<boolean> =>
+    idleConsideringDimGhost(plain, detectPaneState(plain) === 'typing' ? await captureParkedInputViewAsync(session, host) : null)
+  const first = await capturePaneAsync(session, host)
   if (first == null) return false
   if (saturationRefusesDispatch(first, session)) {
     logger[saturationLog]({ session }, 'dispatch: refusing prompt — session shows context saturation (100% context)')
     return false
   }
-  if (!idleOrGhost(first)) return false
+  if (!(await idleOrGhost(first))) return false
 
   await delay(PANE_READY_CONFIRM_DELAY_MS)
 
-  const second = capturePane(session, host)
+  const second = await capturePaneAsync(session, host)
   if (second == null) return false
   if (saturationRefusesDispatch(second, session)) {
     logger[saturationLog]({ session }, 'dispatch: refusing prompt — session shows context saturation (100% context)')
@@ -5196,7 +5346,7 @@ export async function clearStaleParkedInput(
   host: string | null = null,
   opts: { lockMode?: 'acquire' | 'held' } = {},
 ): Promise<boolean> {
-  const a = capturePane(session, host)
+  const a = await capturePaneAsync(session, host)
   if (a == null || detectPaneState(a) !== 'typing') return false
   // DIM-GUARD (2026-06-30, Szabi insight): extract the parked TEXT from the
   // dim-stripped (-e) view. Ghost/phantom frames -- stale captures, placeholder
@@ -5206,7 +5356,7 @@ export async function clearStaleParkedInput(
   // as a wedge (no clear, no escalate). Only a REAL typed line (normal intensity)
   // survives the strip. Falls back to the plain capture only if the -e capture
   // fails (rare), preserving prior behaviour in that edge case.
-  const parked = parkedInputText(captureParkedInputView(session, host) ?? a)
+  const parked = parkedInputText((await captureParkedInputViewAsync(session, host)) ?? a)
   if (!parked) return false
 
   // Cooldown guard FIRST, before any blocking sleep: if the same parked text was
@@ -5247,11 +5397,11 @@ async function clearStaleParkedInputInLane(
   prev: { last: number; sig: string; fails: number; escalated: boolean } | undefined,
 ): Promise<boolean> {
   await delay(PARKED_STABLE_CONFIRM_MS)
-  const b = capturePane(session, host)
+  const b = await capturePaneAsync(session, host)
   // Changed (someone is typing) or already cleared -> leave it alone, and do not
   // record an attempt (this was never a stuck box). Compare on the SAME dim-
   // stripped view as the initial extraction so a dim ghost can't flip the result.
-  if (b == null || detectPaneState(b) !== 'typing' || parkedInputText(captureParkedInputView(session, host) ?? b) !== parked) return false
+  if (b == null || detectPaneState(b) !== 'typing' || parkedInputText((await captureParkedInputViewAsync(session, host)) ?? b) !== parked) return false
 
   // The main agent's input box is NEVER auto-cleared (a parked line could be a
   // real reply -- the 2026-06-30 "Balogh" near-miss). That stays absolute.
@@ -5328,7 +5478,7 @@ async function clearStaleParkedInputInLane(
     runTmux(host, ['send-keys', '-t', exactTmuxTarget(session), sequence[i]], { timeout: 5000 })
     if (i % PARKED_CLEAR_RECHECK_EVERY === PARKED_CLEAR_RECHECK_EVERY - 1) {
       await delay(PARKED_CLEAR_SETTLE_MS)
-      const after = capturePane(session, host)
+      const after = await capturePaneAsync(session, host)
       if (after == null || detectPaneState(after) !== 'typing') break
     }
   }
@@ -5337,7 +5487,7 @@ async function clearStaleParkedInputInLane(
   // Verify the box is ACTUALLY empty before claiming success: only then is the
   // pending message safe to deliver next tick. Otherwise record the failure so
   // the cooldown guard above backs us off instead of hammering every tick.
-  const final = capturePane(session, host)
+  const final = await capturePaneAsync(session, host)
   const stillStuck = final != null && detectPaneState(final) === 'typing' && parkedInputText(final) === parked
   if (stillStuck) {
     const fails = (prev && prev.sig === parked ? prev.fails : 0) + 1

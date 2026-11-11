@@ -608,6 +608,142 @@ describe('the Claude plan delete uses it', () => {
   })
 })
 
+describe('the update questions use it', () => {
+  const fn = (name: string) => {
+    const m = new RegExp(`async function ${name}\\(`).exec(APP)
+    if (!m) return ''
+    let depth = 0
+    for (let j = APP.indexOf('{', m.index); j < APP.length; j++) {
+      if (APP[j] === '{') depth++
+      else if (APP[j] === '}' && --depth === 0) return APP.slice(m.index, j + 1)
+    }
+    return ''
+  }
+  const CLI = fn('applyCliUpdate')
+  const DIAG = fn('runDiagnose')
+  const RUN = fn('runUpdate')
+  const APPLY = (() => {
+    const i = APP.indexOf("document.getElementById('updatesApplyBtn').addEventListener('click'")
+    const j = i < 0 ? -1 : APP.indexOf('\n})\n', i)
+    return i < 0 || j < 0 ? '' : APP.slice(i, j)
+  })()
+
+  // A button stub that runUpdate and the others can disable, hide and query.
+  const button = () => {
+    const part = { hidden: false }
+    return { disabled: false, hidden: false, querySelector: () => part }
+  }
+  function load(body: string, name: string, answer: boolean, responses: Array<{ ok: boolean; body: unknown }>) {
+    const dialogs: Array<Record<string, unknown>> = []
+    const calls: Array<{ url: string; body?: string }> = []
+    const toasts: string[] = []
+    const queue = [...responses]
+    const run = new Function(
+      'confirmDialog', 't', 'fetch', 'showToast', 'document', 'renderCliUpdateOffer', 'pollUpdateOutcome',
+      `${body}\nreturn ${name}`,
+    )(
+      async (o: Record<string, unknown>) => { dialogs.push(o); return answer },
+      (key: string, vars?: Record<string, string>) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
+      async (url: string, init: { body?: string } = {}) => {
+        calls.push({ url, body: init.body })
+        const r = queue.shift() ?? { ok: true, body: {} }
+        return { ok: r.ok, status: r.ok ? 200 : 409, json: async () => r.body }
+      },
+      (m: string) => { toasts.push(m) },
+      { getElementById: () => button() },
+      () => {}, async () => {},
+    ) as (arg?: unknown) => Promise<void>
+    return { run, dialogs, calls, toasts }
+  }
+
+  it('the handlers were found, with no native confirm() left', () => {
+    for (const part of [CLI, DIAG, RUN, APPLY]) {
+      expect(part).not.toBe('')
+      expect(part).not.toMatch(/(^|[^.\w])(confirm|alert)\(/)
+    }
+  })
+
+  it('the CLI update asks in its own dialog naming the version; a "no" sends nothing, a "yes" the apply', async () => {
+    const no = load(CLI, 'applyCliUpdate', false, [])
+    await no.run('2.1.320')
+    expect(no.dialogs).toEqual([{
+      title: 'updates.cli.confirm_title',
+      message: 'updates.cli.confirm {"v":"2.1.320"}',
+      okLabel: 'updates.cli.confirm_ok',
+    }])
+    expect(no.calls).toEqual([])
+    const yes = load(CLI, 'applyCliUpdate', true, [{ ok: true, body: {} }])
+    await yes.run('2.1.320')
+    expect(yes.calls).toEqual([{ url: '/api/updates/cli/apply', body: '{"target":"2.1.320"}' }])
+  })
+
+  it('the diagnosis asks in its own dialog; a "no" starts nothing, a "yes" the diagnosis', async () => {
+    const no = load(DIAG, 'runDiagnose', false, [])
+    await no.run()
+    expect(no.dialogs).toEqual([{
+      title: 'updates.diagnose.consent_title',
+      message: 'updates.diagnose.consent',
+      okLabel: 'updates.diagnose.consent_ok',
+    }])
+    expect(no.calls).toEqual([])
+    const yes = load(DIAG, 'runDiagnose', true, [{ ok: true, body: {} }])
+    await yes.run()
+    expect(yes.calls.map(c => c.url)).toEqual(['/api/updates/diagnose'])
+  })
+
+  it('a dirty tree offers the stash in a danger dialog; a "no" stops, a "yes" retries with autoStash', async () => {
+    const dirty = { ok: false, body: { reason: 'dirty-tree', error: 'Working tree has uncommitted changes' } }
+    const no = load(RUN, 'runUpdate', false, [dirty])
+    await no.run(false)
+    expect(no.dialogs).toEqual([{
+      title: 'updates.confirm.stash_title',
+      message: 'updates.confirm.stash',
+      okLabel: 'updates.confirm.stash_ok',
+      danger: true,
+    }])
+    expect(no.calls.map(c => c.body)).toEqual(['{"autoStash":false}'])
+    const yes = load(RUN, 'runUpdate', true, [dirty, { ok: true, body: {} }])
+    await yes.run(false)
+    expect(yes.calls.map(c => c.body)).toEqual(['{"autoStash":false}', '{"autoStash":true}'])
+    // Already with autoStash: no second question.
+    const again = load(RUN, 'runUpdate', true, [dirty])
+    await again.run(true)
+    expect(again.dialogs).toEqual([])
+  })
+
+  it('the update button asks in its own dialog before runUpdate', () => {
+    expect(APPLY).toContain("title: t('updates.confirm.apply_title')")
+    expect(APPLY).toContain("message: t('updates.confirm.apply')")
+    expect(APPLY).toContain("okLabel: t('updates.confirm.apply_ok')")
+    const ask = APPLY.indexOf('await confirmDialog({')
+    const guard = APPLY.indexOf('if (!confirmed) return')
+    expect(ask).toBeGreaterThan(-1)
+    expect(guard).toBeGreaterThan(ask)
+    expect(APPLY.indexOf('await runUpdate(false)')).toBeGreaterThan(guard)
+  })
+
+  it('the keys are in both languages; the texts say what the update does', () => {
+    const line = (lang: string, key: string) => lang.split('\n').find(l => l.includes(`'${key}':`)) ?? ''
+    for (const lang of [HU, EN]) {
+      for (const key of ['updates.confirm.apply', 'updates.confirm.stash', 'updates.cli.confirm', 'updates.diagnose.consent']) {
+        for (const suffix of ['', '_title', '_ok']) expect(line(lang, key + suffix), key + suffix).not.toBe('')
+      }
+      expect(line(lang, 'updates.cli.confirm')).toContain('{v}')
+    }
+    // update.sh restarts the channels unit too (a fresh conversation) and rolls a dashboard that does not come up back.
+    expect(line(HU, 'updates.confirm.apply')).toContain('új beszélgetéssel')
+    expect(line(HU, 'updates.confirm.apply')).toContain('visszaáll az előző verzióra')
+    // A conflicting restore leaves the local change in the stash only.
+    expect(line(HU, 'updates.confirm.stash')).toContain('csak a stash-ben')
+    // The diagnosis is a task on the main agent, not a new agent; it never restarts the services.
+    expect(line(HU, 'updates.diagnose.consent')).toContain('A fő ügynök feladatot kap')
+    expect(line(HU, 'updates.diagnose.consent')).toContain('nem indítja újra')
+    for (const key of ['updates.cli.confirm', 'updates.diagnose.consent', 'updates.confirm.stash']) {
+      expect(line(HU, key)).not.toMatch(/session|agenst|working tree/)
+    }
+  })
+})
+
 describe('the Vault deletes use it', () => {
   const SITES = [
     ['delete a secret from the Connectors list', "<span class=\"github-repo-date\">${escapeHtml(s.id)} &middot; ${date}</span>", 'vault.confirm.delete', "{ method: 'DELETE' })"],
@@ -797,6 +933,177 @@ describe('the pending retry cancel and the background task stop use it', () => {
   })
 })
 
+describe('the auth and device questions use it', () => {
+  const fn = (name: string) => {
+    const m = new RegExp(`(?:async )?function ${name}\\(`).exec(APP)
+    if (!m) return ''
+    let depth = 0
+    for (let j = APP.indexOf('{', m.index); j < APP.length; j++) {
+      if (APP[j] === '{') depth++
+      else if (APP[j] === '}' && --depth === 0) return APP.slice(m.index, j + 1)
+    }
+    return ''
+  }
+  const BRIDGE = fn('bridgeEnrollFromUi')
+  const DEVICES = fn('refreshDeviceKeyList')
+  const OPERATOR = fn('saveOperatorAccess')
+  const FAILURE = fn('handleAuthFailure')
+  const NOTICE = fn('showAuthFailedNotice')
+  const tr = (key: string, vars?: Record<string, string>) => (vars ? `${key} ${JSON.stringify(vars)}` : key)
+
+  it('the handlers were found, with no native confirm() or alert() left', () => {
+    for (const part of [BRIDGE, DEVICES, OPERATOR, FAILURE, NOTICE]) {
+      expect(part).not.toBe('')
+      expect(part).not.toMatch(/(^|[^.\w])(confirm|alert)\(/)
+    }
+  })
+
+  it('the Bridge pairing asks in its own dialog naming the device; a "no" sends nothing', async () => {
+    const dialogs: Array<Record<string, unknown>> = []
+    const calls: string[] = []
+    const fields: Record<string, { value: string; className?: string; textContent?: string; hidden?: boolean; classList?: { add: () => void } }> = {
+      authBridgeKeyLine: { value: 'ssh-ed25519 AAAA bridge-x' },
+      authBridgeName: { value: 'Laptop' },
+      authBridgeHost: { value: '' },
+      authBridgeMsg: { value: '', classList: { add: () => {} } },
+      authBridgeBundle: { value: '' },
+    }
+    const run = new Function('confirmDialog', 't', 'fetch', 'document', `${BRIDGE}\nreturn bridgeEnrollFromUi`)(
+      async (o: Record<string, unknown>) => { dialogs.push(o); return false },
+      tr,
+      async (url: string) => { calls.push(url); return { ok: true, json: async () => ({}) } },
+      { getElementById: (id: string) => fields[id] },
+    ) as () => Promise<void>
+    await run()
+    expect(dialogs).toEqual([{
+      title: 'auth.bridge.confirm_title',
+      message: 'auth.bridge.confirm {"name":"Laptop"}',
+      okLabel: 'auth.bridge.confirm_ok',
+    }])
+    expect(calls).toEqual([])
+  })
+
+  it('the device key revoke names the device in a danger dialog, says a Bridge loses its tunnel too, and a "no" sends nothing', async () => {
+    async function revoke(key: Record<string, unknown>, answer: boolean) {
+      const dialogs: Array<Record<string, unknown>> = []
+      const calls: Array<{ url: string; method: string }> = []
+      let onClick: (() => Promise<void>) | null = null
+      const btn = { dataset: { keyId: String(key.id) }, addEventListener: (_: string, f: () => Promise<void>) => { onClick = f } }
+      const list = { innerHTML: '', querySelectorAll: () => [btn] }
+      const run = new Function('confirmDialog', 't', 'fetch', 'document', 'escapeHtml', `${DEVICES}\nreturn refreshDeviceKeyList`)(
+        async (o: Record<string, unknown>) => { dialogs.push(o); return answer },
+        tr,
+        async (url: string, init: { method?: string } = {}) => {
+          calls.push({ url, method: init.method || 'GET' })
+          return { ok: true, json: async () => (url === '/api/auth/device-keys' ? { keys: [{ createdAt: 1, ...key }] } : {}) }
+        },
+        { getElementById: (id: string) => (id === 'authDeviceKeyList' ? list : null) },
+        (x: string) => x,
+      ) as () => Promise<void>
+      await run()
+      await onClick!()
+      return { dialogs, deletes: calls.filter(c => c.method === 'DELETE') }
+    }
+    const plain = await revoke({ id: 7, name: 'Telefon' }, false)
+    expect(plain.dialogs).toEqual([{
+      title: 'auth.devices.revoke_confirm_title',
+      message: 'auth.devices.revoke_confirm {"name":"Telefon"}',
+      okLabel: 'auth.devices.revoke_confirm_ok',
+      danger: true,
+    }])
+    expect(plain.deletes).toEqual([])
+    const bridge = await revoke({ id: 8, name: 'Laptop', installId: 'abc' }, false)
+    expect(bridge.dialogs[0].message).toBe('auth.devices.revoke_confirm {"name":"Laptop"} auth.devices.revoke_confirm_bridge')
+    const yes = await revoke({ id: 7, name: 'Telefon' }, true)
+    expect(yes.deletes).toEqual([{ url: '/api/auth/device-keys/7', method: 'DELETE' }])
+  })
+
+  it('turning on the pane view asks in its own dialog, naming the allowed commands; a "no" leaves it unticked and saves nothing', async () => {
+    async function turnOn(answer: boolean) {
+      const dialogs: Array<Record<string, unknown>> = []
+      const puts: Array<Record<string, any>> = []
+      const boxes: Record<string, { dataset: Record<string, string>; checked: boolean }> = {
+        paneView: { dataset: { opCap: 'paneView' }, checked: true },
+        update: { dataset: { opCap: 'update' }, checked: false },
+      }
+      let duringDialog: boolean | null = null
+      let save: (ev: unknown) => Promise<void> = async () => {}
+      save = new Function('confirmDialog', 't', 'fetch', 'document', 'OPERATOR_CAPS', 'OPERATOR_CMDS', 'CSS', 'applyOperatorAccess', `${OPERATOR}\nreturn saveOperatorAccess`)(
+        async (o: Record<string, unknown>) => {
+          dialogs.push(o)
+          duringDialog = boxes.paneView.checked
+          // Behind the open dialog, another switch is toggled from the keyboard and saves.
+          boxes.update.checked = true
+          await save({ target: boxes.update })
+          return answer
+        },
+        tr,
+        async (_url: string, init: { body?: string } = {}) => { if (init.body) puts.push(JSON.parse(init.body)); return { ok: true, json: async () => ({}) } },
+        {
+          getElementById: () => ({ className: '', checked: true, classList: { add: () => {} } }),
+          querySelector: (sel: string) => {
+            const m = /data-op-cap="([^"]+)"/.exec(sel)
+            return (m && boxes[m[1]]) || { checked: false }
+          },
+        },
+        ['paneView', 'update'], ['login', 'mcp'], { escape: (x: string) => x }, () => {},
+      ) as (ev: unknown) => Promise<void>
+      await save({ target: boxes.paneView })
+      return { dialogs, puts, duringDialog, box: boxes.paneView }
+    }
+    const no = await turnOn(false)
+    expect(no.dialogs).toEqual([{
+      title: 'auth.operator.pane_warning_title',
+      message: 'auth.operator.pane_warning {"cmds":"/login, /mcp"}',
+      okLabel: 'auth.operator.pane_warning_ok',
+    }])
+    // While the dialog is open the box is unticked, so the save behind it does not carry paneView=true.
+    expect(no.duringDialog).toBe(false)
+    expect(no.puts.map(b => b.capabilities.paneView)).toEqual([false])
+    expect(no.box.checked).toBe(false)
+    const yes = await turnOn(true)
+    expect(yes.box.checked).toBe(true)
+    expect(yes.puts.map(b => b.capabilities.paneView)).toEqual([false, true])
+  })
+
+  it('a failed token login without a password login shows a translated notice instead of the English alert', () => {
+    expect(FAILURE).toContain('showAuthFailedNotice()')
+    expect(APP).not.toContain('Dashboard authentication failed.')
+    for (const key of ['auth.failed.title', 'auth.failed.desc', 'auth.failed.close']) expect(NOTICE).toContain(`tr('${key}', `)
+    expect(NOTICE).toContain("close.addEventListener('click', () => overlay.remove())")
+    expect(NOTICE).not.toContain('innerHTML')
+  })
+
+  it('the keys are in both languages; the texts say what the server does', () => {
+    const line = (lang: string, key: string) => lang.split('\n').find(l => l.includes(`'${key}':`)) ?? ''
+    for (const lang of [HU, EN]) {
+      for (const key of ['auth.bridge.confirm', 'auth.devices.revoke_confirm', 'auth.operator.pane_warning']) {
+        for (const suffix of ['', '_title', '_ok']) expect(line(lang, key + suffix), key + suffix).not.toBe('')
+      }
+      for (const key of ['auth.devices.revoke_confirm_bridge', 'auth.failed.title', 'auth.failed.desc', 'auth.failed.close']) expect(line(lang, key), key).not.toBe('')
+      expect(line(lang, 'auth.bridge.confirm')).toContain('"{name}"')
+      expect(line(lang, 'auth.devices.revoke_confirm')).toContain('"{name}"')
+      expect(line(lang, 'auth.failed.desc')).toContain('?token=')
+    }
+    // At pairing the tunnel opens to the dashboard port only (permitopen); later the Bridge may ask for further
+    // local ports with its own key, with a notification (bridge-service-ports.ts). A re-paired Bridge loses its old key.
+    expect(line(HU, 'auth.bridge.confirm')).toContain('párosításkor csak a dashboardhoz')
+    expect(line(HU, 'auth.bridge.confirm')).toContain('további helyi portokat kérhet, ezekről értesítést kapsz')
+    expect(line(EN, 'auth.bridge.confirm')).toContain('at pairing opens to the dashboard only')
+    expect(line(EN, 'auth.bridge.confirm')).toContain('further local ports')
+    expect(line(HU, 'auth.bridge.confirm')).toContain('a régi kulcsa megszűnik')
+    expect(line(HU, 'auth.devices.revoke_confirm_bridge')).toContain('SSH-alagútja is megszűnik')
+    expect(line(HU, 'auth.operator.pane_warning')).toContain('Írni nem tud bele')
+    // Even the commands right sends only the fixed commands (OPERATOR_COMMANDS); the list comes from the code.
+    expect(line(HU, 'auth.operator.pane_warning')).toContain('a parancsküldés jogával is csak az általad engedélyezett fix parancsokat')
+    expect(line(EN, 'auth.operator.pane_warning')).toContain('even with the commands permission they can only send the fixed commands')
+    for (const lang of [HU, EN]) {
+      expect(line(lang, 'auth.operator.pane_warning')).toContain('({cmds})')
+      expect(line(lang, 'auth.operator.pane_warning')).not.toContain('/login')
+    }
+  })
+})
+
 describe('the custom provider delete uses it', () => {
   const anchor = "tbody.querySelectorAll('[data-provider-delete]').forEach"
   const handler = (() => {
@@ -912,5 +1219,124 @@ describe('the idea and idea attachment deletes use it', () => {
       expect(lang.split('\n').find(l => l.includes("'ideas.confirm.delete':"))).toContain('{title}')
       expect(lang.split('\n').find(l => l.includes("'ideas.detail.attach.confirm_delete':"))).toContain('{name}')
     }
+  })
+})
+
+describe('the Gromzo agent switches use it', () => {
+  // The bodies sit inside the Gromzo page's closure: cut each by its braces and run it with that closure's names handed in.
+  const fn = (name: string) => {
+    const m = new RegExp(`async function ${name}\\(row\\) \\{`).exec(APP)
+    if (!m) return ''
+    let depth = 0
+    for (let j = APP.indexOf('{', m.index); j < APP.length; j++) {
+      if (APP[j] === '{') depth++
+      else if (APP[j] === '}' && --depth === 0) return APP.slice(m.index, j + 1)
+    }
+    return ''
+  }
+  const ON = fn('switchOn')
+  const OFF = fn('switchOff')
+  const RESTART = fn('restartMain')
+
+  function load(body: string, name: string, answer: boolean) {
+    const dialogs: Array<Record<string, unknown>> = []
+    const posts: string[] = []
+    const run = new Function(
+      'confirmDialog', 't', 'post', 'local', 'render', 'loadAgents', 'codeOf', 'agentErr', 'nameFieldShown', 'nameFor', 'nameAsk', 'NAME_CODES', 'nameRefused', 'setTimeout',
+      `${body}\nreturn ${name}`,
+    )(
+      async (o: Record<string, unknown>) => { dialogs.push(o); return answer },
+      (key: string, vars?: Record<string, string>) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
+      async (slug: string, action: string) => { posts.push(`${slug}/${action}`); return { ok: true, json: async () => ({ state: 'removed' }) } },
+      new Map(), () => {}, async () => {}, async () => 'x', (c: string) => c,
+      () => false, () => '', new Set(), [], () => {}, () => 0,
+    ) as (row: Record<string, unknown>) => Promise<void>
+    return { run, dialogs, posts }
+  }
+
+  it('the handlers were found, with no native confirm() left', () => {
+    for (const part of [ON, OFF, RESTART]) {
+      expect(part).not.toBe('')
+      expect(part).not.toMatch(/(^|[^.\w])(confirm|alert)\(/)
+    }
+  })
+
+  it('the main agent switch-on asks in its own dialog; a "no" sends nothing, a "yes" the enable', async () => {
+    const no = load(ON, 'switchOn', false)
+    await no.run({ slug: 'main', main: true })
+    expect(no.dialogs).toEqual([{
+      title: 'gromzo.agents.main.confirm_on_title',
+      message: 'gromzo.agents.main.confirm_on',
+      okLabel: 'gromzo.agents.main.confirm_on_ok',
+    }])
+    expect(no.posts).toEqual([])
+    const yes = load(ON, 'switchOn', true)
+    await yes.run({ slug: 'main', main: true })
+    expect(yes.posts).toEqual(['main/enable'])
+  })
+
+  it('a sub-agent switch-on asks nothing (the approval on Gromzo is the question)', async () => {
+    const h = load(ON, 'switchOn', false)
+    await h.run({ slug: 'kutato', name: 'Kutató' })
+    expect(h.dialogs).toEqual([])
+    expect(h.posts).toEqual(['kutato/enable'])
+  })
+
+  it('the switch-off: the main agent in its own dialog, a sub-agent in a danger one naming it; a "no" sends nothing', async () => {
+    const main = load(OFF, 'switchOff', false)
+    await main.run({ slug: 'main', main: true, name: 'Fő' })
+    expect(main.dialogs).toEqual([{
+      title: 'gromzo.agents.main.confirm_off_title',
+      message: 'gromzo.agents.main.confirm_off',
+      okLabel: 'gromzo.agents.main.confirm_off_ok',
+    }])
+    const sub = load(OFF, 'switchOff', false)
+    await sub.run({ slug: 'kutato', name: 'Kutató' })
+    expect(sub.dialogs).toEqual([{
+      title: 'gromzo.agents.confirm_off_title',
+      message: 'gromzo.agents.confirm_off {"name":"Kutató"}',
+      okLabel: 'gromzo.agents.confirm_off_ok',
+      danger: true,
+    }])
+    const unnamed = load(OFF, 'switchOff', false)
+    await unnamed.run({ slug: 'kutato' })
+    expect(unnamed.dialogs[0].message).toBe('gromzo.agents.confirm_off {"name":"kutato"}')
+    expect([...main.posts, ...sub.posts, ...unnamed.posts]).toEqual([])
+    const yes = load(OFF, 'switchOff', true)
+    await yes.run({ slug: 'kutato', name: 'Kutató' })
+    expect(yes.posts).toEqual(['kutato/disable'])
+  })
+
+  it('the main restart asks in its own dialog; a "no" sends nothing, a "yes" the restart', async () => {
+    const no = load(RESTART, 'restartMain', false)
+    await no.run({ slug: 'main', main: true })
+    expect(no.dialogs).toEqual([{
+      title: 'gromzo.agents.main.confirm_restart_title',
+      message: 'gromzo.agents.main.confirm_restart',
+      okLabel: 'gromzo.agents.main.confirm_restart_ok',
+    }])
+    expect(no.posts).toEqual([])
+    const yes = load(RESTART, 'restartMain', true)
+    await yes.run({ slug: 'main', main: true })
+    expect(yes.posts).toEqual(['main/restart'])
+  })
+
+  it('the keys are in both languages; the texts say what the server does', () => {
+    const line = (lang: string, key: string) => lang.split('\n').find(l => l.includes(`'${key}':`)) ?? ''
+    for (const lang of [HU, EN]) {
+      for (const key of ['main.confirm_on', 'main.confirm_off', 'main.confirm_restart', 'confirm_off']) {
+        for (const suffix of ['', '_title', '_ok']) expect(line(lang, `gromzo.agents.${key}${suffix}`), key + suffix).not.toBe('')
+      }
+      expect(line(lang, 'gromzo.agents.confirm_off')).toContain('"{name}"')
+    }
+    // The main agent's restart is a fresh one (hardRestartMarveenChannels), and a busy pane is not cut off.
+    for (const key of ['main.confirm_on', 'main.confirm_off', 'main.confirm_restart']) {
+      expect(line(HU, `gromzo.agents.${key}`)).toMatch(/új beszélgetés/iu)
+      expect(line(HU, `gromzo.agents.${key}`)).toMatch(/[ns]em szakítjuk meg/u)
+    }
+    // A sub-agent's switch-off removes it from mxd: on again only with a new approval. The old text said "chat service".
+    expect(line(HU, 'gromzo.agents.confirm_off')).toContain('új jóváhagyással')
+    expect(line(HU, 'gromzo.agents.confirm_off')).not.toContain('chat-szolgáltatás')
+    expect(line(HU, 'gromzo.agents.main.confirm_off')).toContain('új jóváhagyás nélkül')
   })
 })

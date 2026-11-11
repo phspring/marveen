@@ -179,11 +179,37 @@ function mainAgentId() {
     if (isStandalone) {
       showStandaloneTokenPrompt(TOKEN_KEY)
     } else {
-      alert(
-        'Dashboard authentication failed. Check the server log for the access URL ' +
-        '(look for "Dashboard access URL" with ?token=...), then reopen it in your browser.'
-      )
+      showAuthFailedNotice()
     }
+  }
+
+  // No password login and no PWA: the only way in is the startup URL with ?token=. A closable notice in the page's
+  // language instead of the hard-coded English alert().
+  function showAuthFailedNotice() {
+    if (document.getElementById('mv-auth-failed-overlay')) return
+    const tr = (k, fallback) => (typeof window.t === 'function' ? window.t(k) : fallback) || fallback
+    const overlay = document.createElement('div')
+    overlay.id = 'mv-auth-failed-overlay'
+    overlay.setAttribute('role', 'alertdialog')
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:#1a1917;color:#faf9f5;' +
+      'display:flex;align-items:center;justify-content:center;padding:24px;' +
+      'font-family:system-ui,-apple-system,sans-serif'
+    const box = document.createElement('div')
+    box.style.cssText = 'max-width:420px;width:100%;display:flex;flex-direction:column;gap:14px'
+    const title = document.createElement('h2')
+    title.style.cssText = 'margin:0;font-size:18px;text-align:center'
+    title.textContent = tr('auth.failed.title', 'The dashboard did not accept the access')
+    const desc = document.createElement('p')
+    desc.style.cssText = 'margin:0;font-size:14px;opacity:0.8;line-height:1.5;text-align:center'
+    desc.textContent = tr('auth.failed.desc', 'The access token stored in this browser is missing, wrong or revoked. Find the "Dashboard access URL" line in the server log and open its link, with the ?token= part, again.')
+    const close = document.createElement('button')
+    close.style.cssText = 'padding:12px;border:0;border-radius:8px;background:#3a3936;color:#faf9f5;font-size:15px;font-weight:600'
+    close.textContent = tr('auth.failed.close', 'Close')
+    close.addEventListener('click', () => overlay.remove())
+    box.append(title, desc, close)
+    overlay.appendChild(box)
+    document.body.appendChild(overlay)
+    setTimeout(() => close.focus(), 50)
   }
 
   // Full-screen username+password login overlay. Posts to /api/auth/login; on
@@ -437,11 +463,12 @@ function switchPage(pageId) {
   // Kanban needs full-width layout (overrides main's max-width: 1200px)
   document.querySelector('main').classList.toggle('kanban-active', pageId === 'kanban')
   // Agents page tints each Terminal button green while that agent is working;
-  // same 3s poll + source as Activity. Stop it when we leave the page.
-  if (pageId !== 'agents') stopAgentsBusyPoll()
+  // same 3s poll + source as Activity. The overview's team graph uses the same
+  // poll for its green "working" border. Stop it when we leave both pages.
+  if (pageId !== 'agents' && pageId !== 'overview') stopAgentsBusyPoll()
   // Kanban auto-refresh: start on enter, stop on leave.
   if (pageId !== 'kanban') stopKanbanRefresh()
-  if (pageId === 'overview') loadOverview()
+  if (pageId === 'overview') { loadOverview(); startAgentsBusyPoll() }
   if (pageId === 'projects') loadProjects()
   if (pageId === 'kanban') { if (typeof _initGanttViewSwitcher === 'function') _initGanttViewSwitcher(); loadKanban(); startKanbanRefresh() }
   if (pageId === 'tasks') loadSchedules()
@@ -3981,6 +4008,7 @@ async function loadAgents() {
     }
     if (marveenRes.ok) {
       window._marveen = await marveenRes.json()
+      updateMainChannelUnconfBanner(window._marveen)
       // A backend CHANNEL_PROVIDER-éhez igazitsuk a kliens-default-ot,
       // hogy ne 'telegram' jelenjen meg amikor a backend discord-on van.
       if (window._marveen?.channelProvider) {
@@ -4290,7 +4318,10 @@ async function openMarveenDetail() {
   document.getElementById('agentDetailName').textContent = displayName
   document.getElementById('agentDetailDesc').textContent = m.description || ''
   document.getElementById('agentDetailModel').textContent = m.model || '-'
-  document.getElementById('agentDetailChStatus').innerHTML = `<span class="tg-status"><span class="tg-dot connected"></span>${t('agents.channel.connected')}</span>`
+  // CHANNELUNCONF1110: it said "connected" unconditionally, also on an install whose channel has no token.
+  document.getElementById('agentDetailChStatus').innerHTML = m.mainChannelUnconfigured
+    ? `<span class="tg-status"><span class="tg-dot"></span>${t('agents.channel.not_configured')}</span>`
+    : `<span class="tg-status"><span class="tg-dot connected"></span>${t('agents.channel.connected')}</span>`
   // Populate the Skills tab for the main agent too: the endpoint returns the
   // global ~/.claude/skills under its real id (agentId), which every agent
   // inherits. Previously this was hard-set to '-' and loadSkills was never
@@ -4644,6 +4675,21 @@ function startAgentsBusyPoll() {
 function stopAgentsBusyPoll() {
   if (agentsBusyTimer) { clearInterval(agentsBusyTimer); agentsBusyTimer = null }
 }
+// The poll only serves the Overview and Agents pages, and a hidden tab needs
+// neither: stop it while the tab is hidden, and when the tab is shown again on
+// one of those pages, restart it (startAgentsBusyPoll refreshes at once).
+// Same rule as the kanban auto-refresh.
+function agentsBusyPollPageOpen() {
+  return ['overviewPage', 'agentsPage'].some((id) => {
+    const page = document.getElementById(id)
+    return !!page && !page.hidden
+  })
+}
+function onAgentsBusyPollVisibility() {
+  if (document.hidden) stopAgentsBusyPoll()
+  else if (agentsBusyPollPageOpen()) startAgentsBusyPoll()
+}
+document.addEventListener('visibilitychange', onAgentsBusyPollVisibility)
 async function refreshAgentTerminalBusy() {
   let entries
   try {
@@ -4677,11 +4723,12 @@ async function refreshAgentTerminalBusy() {
   }
   // Org-chart view: same signal, painted as the node's border. Toggled in place
   // rather than re-rendering, so an in-progress drag survives the tick.
-  // Scoped to #teamGraph on purpose -- the overview's mini graph is a snapshot
-  // and has no poll keeping it honest.
-  const treeGraph = document.getElementById('teamGraph')
-  if (treeGraph) {
-    treeGraph.querySelectorAll('.team-node[data-agent-id]').forEach((el) => {
+  // The overview's mini graph is kept live by the same poll while the overview
+  // page is open (switchPage starts it there too).
+  for (const graphId of ['teamGraph', 'overviewTeamGrid']) {
+    const graph = document.getElementById(graphId)
+    if (!graph) continue
+    graph.querySelectorAll('.team-node[data-agent-id]').forEach((el) => {
       el.classList.toggle('team-node-active', _workingAgentIds.has(el.dataset.agentId))
     })
   }
@@ -5367,6 +5414,8 @@ let currentChannelProvider = 'telegram'
     const res = await fetch('/api/marveen')
     if (!res.ok) return
     const data = await res.json()
+    // CHANNELUNCONF1110: the "no channel configured" banner, from the same payload, on every page load.
+    updateMainChannelUnconfBanner(data)
     if (!data.channelProvider || data.channelProvider === currentChannelProvider) return
     currentChannelProvider = data.channelProvider
     const sel = document.getElementById('chProviderSelect')
@@ -6697,6 +6746,8 @@ document.getElementById('chConnectBtn').addEventListener('click', async () => {
     if (result.restartError) showToast(t('agents.channel.saved_restart_failed', { provider: getProviderLabel(), cmd: result.restartCommand || '' }), 12000)
     else showToast(`${getProviderLabel()} sikeresen csatlakoztatva!`)
     // Refresh detail
+    // CHANNELUNCONF1110: the main agent's detail draws from /api/marveen; fetch it first so the status and the banner follow.
+    if (currentAgent.name === mainAgentId()) await refreshMainChannelUnconfBanner()
     await openAgentDetail(currentAgent.name)
     loadAgents()
   } catch (err) {
@@ -7166,6 +7217,8 @@ document.getElementById('chDisconnectBtn').addEventListener('click', async () =>
     const reply = await readActionReply(res)
     if (!reply.ok) { showToast(t('common.not_done', { msg: refusalReason(res, reply.body) })); return }
     showToast(t('channel.toast.disconnected', { provider: provLabel }))
+    // CHANNELUNCONF1110: the main agent's detail draws from /api/marveen; fetch it first so the status and the banner follow.
+    if (currentAgent.name === mainAgentId()) await refreshMainChannelUnconfBanner()
     await openAgentDetail(currentAgent.name)
     loadAgents()
   } catch {
@@ -15083,6 +15136,75 @@ function renderQuotaStrip(q, fable) {
   }
 }
 
+// === Overview: token usage card (last 24h, per agent) ===
+// Reads the same /api/token-usage/summary the Token Monitor page uses. The
+// server only auto-collects hourly, so the overview triggers the incremental
+// collect itself (cursor-based, cheap), at most every 5 minutes, before reading.
+let _overviewTokensCollectedAt = 0
+async function loadOverviewTokens() {
+  const box = document.getElementById('overviewTokens')
+  if (!box) return
+  try {
+    if (Date.now() - _overviewTokensCollectedAt > 5 * 60_000) {
+      _overviewTokensCollectedAt = Date.now()
+      await fetch('/api/token-usage/collect', { method: 'POST' }).catch(() => {})
+    }
+    const now = Math.floor(Date.now() / 1000)
+    const [res, agentsRes] = await Promise.all([
+      fetch(`/api/token-usage/summary?from=${now - 86400}&to=${now}`),
+      fetch('/api/agents').catch(() => null),
+    ])
+    if (!res.ok) throw new Error('HTTP ' + res.status)
+    const rows = await res.json()
+    // Rows are keyed by agent id; show the display name instead (the id stays
+    // in the tooltip). The main agent is not in /api/agents, so it goes through
+    // mainAgentDisplayName() like the Messages view. A failed /api/agents only
+    // costs the names, not the card.
+    const names = new Map()
+    try {
+      const agents = agentsRes && agentsRes.ok ? await agentsRes.json() : []
+      for (const a of Array.isArray(agents) ? agents : []) {
+        if (a && a.name) names.set(a.name, a.displayName || a.name)
+      }
+    } catch {}
+    const label = (id) => (id === mainAgentId() ? mainAgentDisplayName() : names.get(id) || id)
+    const list = (Array.isArray(rows) ? rows : []).map((r) => {
+      const read = r.totalCacheRead || 0
+      const ctxIn = (r.totalInput || 0) + read + (r.totalCacheCreation || 0)
+      return { agent: r.agent, name: label(r.agent), calls: r.totalCalls || 0, read, out: r.totalOutput || 0, ctxIn, total: ctxIn + (r.totalOutput || 0) }
+    }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total)
+    if (list.length === 0) {
+      box.innerHTML = `<div class="overview-token-total">${escapeHtml(t('overview.tokens.empty'))}</div>`
+      return
+    }
+    const max = list[0].total
+    let sum = 0, sumRead = 0
+    box.innerHTML = list.map((r) => {
+      sum += r.total; sumRead += r.read
+      const pct = Math.max(2, Math.round((r.total / max) * 100))
+      const sub = t('overview.tokens.row_sub', {
+        calls: r.calls,
+        ctx: tuFormatTokens(r.calls ? Math.round(r.ctxIn / r.calls) : 0),
+        out: tuFormatTokens(r.out),
+      })
+      return `<div class="overview-token-row">
+        <div class="overview-token-name" title="${escapeHtml(r.agent)}">${escapeHtml(r.name)}</div>
+        <div class="overview-token-bar"><div class="overview-token-bar-fill" style="width:${pct}%"></div></div>
+        <div class="overview-token-value">${escapeHtml(tuFormatTokens(r.total))}</div>
+        <div class="overview-token-sub">${escapeHtml(sub)}</div>
+      </div>`
+    }).join('') + `<div class="overview-token-total">${escapeHtml(t('overview.tokens.total', {
+      total: tuFormatTokens(sum), pct: sum ? Math.round((sumRead / sum) * 100) : 0,
+    }))}</div>`
+  } catch {
+    box.innerHTML = `<div class="overview-token-total">${escapeHtml(t('overview.tokens.error'))}</div>`
+  }
+}
+{
+  const more = document.getElementById('overviewTokensMore')
+  if (more) more.addEventListener('click', (e) => { e.preventDefault(); switchPage('tokenUsage') })
+}
+
 async function loadOverview() {
   try {
     const res = await fetch('/api/overview')
@@ -15099,13 +15221,16 @@ async function loadOverview() {
     document.getElementById('statSkills').textContent = d.skills.count
     document.getElementById('statSkillsSub').textContent = d.skills.today > 0 ? t('overview.stat.skills_today', { n: d.skills.today }) : ''
     renderQuotaStrip(d.quota, d.quotaFable)
+    loadOverviewTokens()
     // Team: reuse the hierarchy graph renderer so the overview card shows
     // exactly what the Csapat page does (avatars + reports-to tree).
     try {
       const tg = await fetch('/api/team/graph')
       if (tg.ok) {
         const graph = await tg.json()
-        renderTeamGraph(document.getElementById('overviewTeamGrid'), graph)
+        // Seed the working border from the last poll; the 3s poll keeps it current.
+        renderTeamGraph(document.getElementById('overviewTeamGrid'), graph, { activeIds: _workingAgentIds })
+        if (agentsBusyTimer) refreshAgentTerminalBusy()
       }
     } catch {}
     // Activity
@@ -15259,6 +15384,43 @@ function wireBranchDriftBanner() {
     const branch = (window._updatesStatus && window._updatesStatus.branch) || ''
     try { if (branch) localStorage.setItem(BRANCH_DRIFT_DISMISS_PREFIX + branch, '1') } catch { /* storage blocked */ }
     if (banner) banner.hidden = true
+  })
+}
+
+// === Main channel not configured (CHANNELUNCONF1110) ===
+// /api/marveen carries `mainChannelUnconfigured`: the provider whose token is missing, or null. The main session then
+// runs WITHOUT its channel (channels.sh), so nobody can message the main agent; the dashboard, the scheduled tasks and
+// the other agents keep working. One sentence plus the way to the main agent's Channel tab. Not dismissible.
+const MAIN_CHANNEL_PROVIDER_LABELS = { telegram: 'Telegram', discord: 'Discord', slack: 'Slack', teams: 'Microsoft Teams' }
+function updateMainChannelUnconfBanner(m) {
+  const banner = document.getElementById('mainChannelUnconfBanner')
+  if (!banner) return
+  const provider = m && typeof m.mainChannelUnconfigured === 'string' ? m.mainChannelUnconfigured : null
+  if (!provider) { banner.hidden = true; return }
+  const textEl = document.getElementById('mainChannelUnconfBannerText')
+  if (textEl) textEl.textContent = t('main_channel.unconfigured.banner', { provider: MAIN_CHANNEL_PROVIDER_LABELS[provider] || provider })
+  banner.hidden = false
+}
+async function refreshMainChannelUnconfBanner() {
+  try {
+    const r = await fetch('/api/marveen')
+    if (!r.ok) return
+    const m = await r.json()
+    window._marveen = { ...(window._marveen || {}), ...m }
+    updateMainChannelUnconfBanner(m)
+  } catch { /* the banner keeps its last state */ }
+}
+function wireMainChannelUnconfBanner() {
+  const btn = document.getElementById('mainChannelUnconfSetup')
+  if (!btn) return
+  btn.addEventListener('click', async () => {
+    // openMarveenDetail draws from window._marveen and returns silently while it is empty, and only the Agents page
+    // fills it: on a fresh install the owner lands on the overview, so the click opened nothing (live acceptance,
+    // measured in a browser). Fetch it first.
+    await refreshMainChannelUnconfBanner()
+    if (!window._marveen) return
+    await openAgentDetail(mainAgentId())
+    switchAgentTab('channel')
   })
 }
 
@@ -15482,7 +15644,12 @@ async function renderCliUpdateOffer(fresh) {
 
 async function applyCliUpdate(target) {
   if (!target) return
-  if (!confirm(t('updates.cli.confirm', { v: target }))) return
+  const confirmed = await confirmDialog({
+    title: t('updates.cli.confirm_title'),
+    message: t('updates.cli.confirm', { v: target }),
+    okLabel: t('updates.cli.confirm_ok'),
+  })
+  if (!confirmed) return
   const btn = document.getElementById('updatesCliBtn')
   if (btn) btn.disabled = true
   try {
@@ -15527,7 +15694,14 @@ async function renderDiagnoseOffer() {
 }
 
 async function runDiagnose() {
-  if (!confirm(t('updates.diagnose.consent'))) return
+  // The post-rollback-diagnose task runs on the main agent: it reads the update log, fixes what it safely can, never
+  // drops local changes and never restarts the services (seed-scheduled-tasks/post-rollback-diagnose/SKILL.md).
+  const confirmed = await confirmDialog({
+    title: t('updates.diagnose.consent_title'),
+    message: t('updates.diagnose.consent'),
+    okLabel: t('updates.diagnose.consent_ok'),
+  })
+  if (!confirmed) return
   const btn = document.getElementById('updatesDiagnoseBtn')
   if (btn) btn.disabled = true
   try {
@@ -15653,9 +15827,15 @@ async function runUpdate(autoStash, rebaseApproval) {
       resetBtn()
       // dirty-tree without autoStash: offer the auto-stash retry inline.
       if (data.reason === 'dirty-tree' && !autoStash) {
-        if (confirm(t('updates.confirm.stash'))) {
-          await runUpdate(true)
-        }
+        // update.sh stashes, updates and pops; a path whose pop conflicts stays on the updated version and the
+        // local change is left in the stash only (ANETTUPDATESTASH1102), hence the danger dialog.
+        const stash = await confirmDialog({
+          title: t('updates.confirm.stash_title'),
+          message: t('updates.confirm.stash'),
+          okLabel: t('updates.confirm.stash_ok'),
+          danger: true,
+        })
+        if (stash) await runUpdate(true)
         return
       }
       // A diverged install: not a dead end, the approval dialog opens (AUTOUPDATEDIVERG1110).
@@ -15727,8 +15907,15 @@ async function pollUpdateOutcome(resetBtn) {
   showToast(t('updates.toast.status_timeout'))
 }
 
+// update.sh stops and starts the dashboard and the channels unit (scripts/stop.sh, start.sh), and channels.sh
+// always starts a fresh conversation; a dashboard that does not come up is rolled back to the previous version.
 document.getElementById('updatesApplyBtn').addEventListener('click', async () => {
-  if (!confirm(t('updates.confirm.apply'))) return
+  const confirmed = await confirmDialog({
+    title: t('updates.confirm.apply_title'),
+    message: t('updates.confirm.apply'),
+    okLabel: t('updates.confirm.apply_ok'),
+  })
+  if (!confirmed) return
   await runUpdate(false)
 })
 
@@ -16280,6 +16467,10 @@ function wireOnboarding(step) {
 populateAvatarGrid()
 loadMemAgents()
 loadOverview()
+// The overview is the landing page without going through switchPage(), so its
+// live team-graph border needs the busy poll started here too. A tab opened in
+// the background starts it on its first visibilitychange instead.
+if (!document.hidden && !document.getElementById('overviewPage').hidden) startAgentsBusyPoll()
 loadAvailableModels()
 loadOllamaModels()
 {
@@ -17186,8 +17377,14 @@ async function bridgeEnrollFromUi() {
   msg.textContent = ''
   out.hidden = true
   if (!keyLine || !name) { msg.classList.add('err'); msg.textContent = t('auth.bridge.err_empty'); return }
-  // The confirm step: pairing grants the device SSH-tunnel + dashboard access.
-  if (!confirm(t('auth.bridge.confirm', { name }))) return
+  // The confirm step: pairing writes a restricted authorized_keys line (a tunnel to the dashboard port only) and mints
+  // a device key; a Bridge paired before (the same install id) loses its old key (mintBridgeDeviceKey).
+  const confirmed = await confirmDialog({
+    title: t('auth.bridge.confirm_title'),
+    message: t('auth.bridge.confirm', { name }),
+    okLabel: t('auth.bridge.confirm_ok'),
+  })
+  if (!confirmed) return
   msg.textContent = t('auth.bridge.working')
   try {
     const r = await fetch('/api/security/bridge-enroll', {
@@ -17266,7 +17463,17 @@ async function refreshDeviceKeyList() {
     }).join('')
     el.querySelectorAll('.auth-device-revoke').forEach((btn) => {
       btn.addEventListener('click', async () => {
-        if (!confirm(t('auth.devices.revoke_confirm'))) return
+        // Name the device; a Bridge-paired one loses its SSH tunnel line too (the server removes both halves).
+        const key = keys.find((x) => String(x.id) === btn.dataset.keyId)
+        let message = t('auth.devices.revoke_confirm', { name: (key && key.name) || btn.dataset.keyId })
+        if (key && key.installId) message += ' ' + t('auth.devices.revoke_confirm_bridge')
+        const confirmed = await confirmDialog({
+          title: t('auth.devices.revoke_confirm_title'),
+          message,
+          okLabel: t('auth.devices.revoke_confirm_ok'),
+          danger: true,
+        })
+        if (!confirmed) return
         // A Bridge-paired revoke means BOTH halves (dashboard key + ssh line).
         // The key is dead either way, but ssh_removed:false means the
         // authorized_keys line survived (fs error) and the device can still
@@ -17381,9 +17588,18 @@ async function saveOperatorAccess(ev) {
   const msg = document.getElementById('opAccMsg')
   msg.className = 'auth-form-msg'
   // Turning on the pane view shows the operator the conversation itself: ask first.
-  if (ev && ev.target && ev.target.dataset.opCap === 'paneView' && ev.target.checked && !confirm(t('auth.operator.pane_warning'))) {
-    ev.target.checked = false
-    return
+  if (ev && ev.target && ev.target.dataset.opCap === 'paneView' && ev.target.checked) {
+    // The box stays unticked while the dialog is open: a save from another switch
+    // behind the dialog reads the boxes, and must not carry paneView=true unconfirmed.
+    const box = ev.target
+    box.checked = false
+    const confirmed = await confirmDialog({
+      title: t('auth.operator.pane_warning_title'),
+      message: t('auth.operator.pane_warning', { cmds: OPERATOR_CMDS.map((c) => '/' + c).join(', ') }),
+      okLabel: t('auth.operator.pane_warning_ok'),
+    })
+    if (!confirmed) return
+    box.checked = true
   }
   const next = {
     enabled: document.getElementById('opAccEnabled').checked,
@@ -17599,6 +17815,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initAuthBanner()
   wireBranchDriftBanner()
   wireUpdateConflictBanner()
+  wireMainChannelUnconfBanner()
   wireFleetFreeze()
 })
 
@@ -18231,6 +18448,7 @@ const CLAUDE_PLAN_LOGIN_ERROR_KEYS = {
   'busy': 'settings.claude_plans.login.error_busy',
   'id-taken': 'settings.claude_plans.login.error_id_taken',
   'invalid-plan': 'settings.claude_plans.login.error_invalid',
+  'invalid-label': 'settings.claude_plans.login.error_invalid_label',
   'claude-not-found': 'settings.claude_plans.login.error_claude_missing',
   'url-timeout': 'settings.claude_plans.login.error_no_link',
   'code-timeout': 'settings.claude_plans.login.error_expired',
@@ -22407,7 +22625,16 @@ function gromzoScheduleStatusRefresh(isConnected, reload, setT) {
   }
 
   async function switchOn(row) {
-    if (row.main && !confirm(t('gromzo.agents.main.confirm_on'))) return
+    // The main agent's switch restarts the main conversation fresh (hardRestartMarveenChannels) after the approval,
+    // through the manual-restart pane gate: a busy pane is not cut off, the row offers "Restart now" instead.
+    if (row.main) {
+      const confirmed = await confirmDialog({
+        title: t('gromzo.agents.main.confirm_on_title'),
+        message: t('gromzo.agents.main.confirm_on'),
+        okLabel: t('gromzo.agents.main.confirm_on_ok'),
+      })
+      if (!confirmed) return
+    }
     const withName = nameFieldShown(row, false)
     const name = withName ? nameFor(row).trim() : ''
     local.set(row.slug, { kind: 'busy' }); render()
@@ -22430,7 +22657,21 @@ function gromzoScheduleStatusRefresh(isConnected, reload, setT) {
   }
 
   async function switchOff(row) {
-    if (!confirm(t(row.main ? 'gromzo.agents.main.confirm_off' : 'gromzo.agents.confirm_off', { name: row.name || row.slug }))) return
+    // A sub-agent's switch-off removes it from mxd (agent_remove), so switching it on again asks for a new approval;
+    // the main agent stays listed in mxd, only its launch side goes, with the same fresh restart as the switch-on.
+    const confirmed = await confirmDialog(row.main
+      ? {
+        title: t('gromzo.agents.main.confirm_off_title'),
+        message: t('gromzo.agents.main.confirm_off'),
+        okLabel: t('gromzo.agents.main.confirm_off_ok'),
+      }
+      : {
+        title: t('gromzo.agents.confirm_off_title'),
+        message: t('gromzo.agents.confirm_off', { name: row.name || row.slug }),
+        okLabel: t('gromzo.agents.confirm_off_ok'),
+        danger: true,
+      })
+    if (!confirmed) return
     local.set(row.slug, { kind: 'busy' }); render()
     try {
       const r = await post(row.slug, 'disable')
@@ -22446,7 +22687,12 @@ function gromzoScheduleStatusRefresh(isConnected, reload, setT) {
   // GROMZOMAINAGENT1106: the main conversation's restart, when the pane was busy at the switch. The server
   // asks the pane gate again; a busy pane keeps the row on "waiting", never forced.
   async function restartMain(row) {
-    if (!confirm(t('gromzo.agents.main.confirm_restart'))) return
+    const confirmed = await confirmDialog({
+      title: t('gromzo.agents.main.confirm_restart_title'),
+      message: t('gromzo.agents.main.confirm_restart'),
+      okLabel: t('gromzo.agents.main.confirm_restart_ok'),
+    })
+    if (!confirmed) return
     local.set(row.slug, { kind: 'busy' }); render()
     try {
       const r = await post(row.slug, 'restart')

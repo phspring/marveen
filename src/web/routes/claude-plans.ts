@@ -21,14 +21,16 @@ import { logger } from '../../logger.js'
 import { MAIN_AGENT_ID, PROJECT_ROOT } from '../../config.js'
 import { getEffectiveSettingValue } from '../../settings-store.js'
 import { readClaudePlans, writeClaudePlans, validatePlan, PLAN_ID_ALLOWED, tokenSecretIdFor } from '../claude-plans.js'
+import { breaksLine } from '../../heartbeat-line.js'
 import { setSecret, deleteSecret, getSecret } from '../vault.js'
 import { readClaudePlansState, writeClaudePlansState, applyRotation, recordPlanObservation } from '../claude-plans-state.js'
 import { probePlanUsage, observationFromProbe, usageFromProbe } from '../../claude-plan-usage-probe.js'
 import { agentDir, writeAgentClaudePlan } from '../agent-config.js'
 import {
-  restartAgentProcess, resolveMainAgentConfigDir, resolveMainAgentRotatedConfigDir, resolveMainAgentRotatedTokenSecretId,
+  restartAgentProcess, planTokenPreflight, resolveMainAgentConfigDir, resolveMainAgentRotatedConfigDir, resolveMainAgentRotatedTokenSecretId,
   hasFleetOauthToken, mainAgentSharedConfigDir,
 } from '../agent-process.js'
+import { waitPlanTokenOutcome } from '../plan-token-launch.js'
 import { hardRestartMarveenChannels, restartMainForRotationContinue } from '../channel-monitor.js'
 import { rotationReadiness } from '../claude-rotation-heartbeat.js'
 import { mainRotationContinueVerdict, type ContinueRestartResult } from '../main-rotation-continue.js'
@@ -147,6 +149,12 @@ export function deleteOwnTokenSecret(planId: string, secretId: string | null | u
 export function commitNewPlan(rawBody: Record<string, unknown>): { status: number; payload: unknown } {
   if (hasAmbiguousTokenField(rawBody)) {
     return { status: 400, payload: { error: 'Invalid plan: token cannot be combined with configDir or tokenSecretId' } }
+  }
+  // K1 (ROTSLACK1111, Dani 75718): a label goes into the heartbeat's line-by-line output; a line break or a control
+  // character is refused here (the value is never echoed). A label already on disk is not dropped by the reader:
+  // the heartbeat flattens it when it prints (heartbeat-line.ts).
+  if (typeof rawBody.label === 'string' && breaksLine(rawBody.label)) {
+    return { status: 400, payload: { error: 'Invalid plan: the label must be a single line, without control characters' } }
   }
   const rawId = typeof rawBody.id === 'string' ? rawBody.id.trim() : ''
   const { candidate, pendingToken } = prepareTokenCandidate(rawBody, rawId)
@@ -373,17 +381,42 @@ export async function tryHandleClaudePlans(ctx: RouteContext): Promise<boolean> 
       json(res, { error: `Agent not found: ${agentId}` }, 404)
       return true
     }
+    // SUBPLANTOKEN1110: a token plan is checked BEFORE anything is written --
+    // the agent can take a plan token at all, and the secret is in the vault.
+    // A refusal is a 4xx and the agent's claudePlan field stays as it was.
+    if (target.tokenSecretId) {
+      const pre = planTokenPreflight(agentId, target.tokenSecretId)
+      if (pre.kind === 'refuse') {
+        json(res, { error: `Plan ${targetPlanId} cannot be used by ${agentId}: ${pre.reason}` }, 409)
+        return true
+      }
+    }
     // Agent config first: if it refuses (corrupt file, JSONCLOBBER926) the
     // rotation side-car must not already claim the switch happened.
     writeAgentClaudePlan(agentId, targetPlanId)
     writeClaudePlansState(applyRotation(readClaudePlansState(), agentId, targetPlanId))
     // RESTARTWAKE927: the plan switch restarts a pane that may be mid-turn.
+    const restartAt = Date.now()
     const result = await restartAgentProcess(agentId, { wake: { reason: 'plan-switch' } })
     if (!result.ok) {
       json(res, { error: result.error || `Restart failed for agent ${agentId}` }, 500)
       return true
     }
     logger.info({ agentId, targetPlanId }, 'Claude plan rotation: agent restarted')
+    if (target.tokenSecretId) {
+      // The answer is what the restarted launch actually did, read back from the
+      // helper's status file -- not the field just written. Only 'plan-token'
+      // means the plan's own token reached the launch env.
+      const launch = await waitPlanTokenOutcome(agentId, restartAt)
+      const launchAuth = launch && launch.at >= restartAt ? launch.state : 'unknown'
+      if (launchAuth !== 'plan-token') {
+        logger.error({ agentId, targetPlanId, launchAuth, reason: launch?.reason }, 'Claude plan rotation: the restarted agent is NOT on the plan token')
+        json(res, { error: `Agent ${agentId} restarted, but not on the plan token (${launchAuth})`, agentId, activePlanId: targetPlanId, launchAuth, ...(launch?.reason ? { reason: launch.reason } : {}) }, 502)
+        return true
+      }
+      json(res, { ok: true, agentId, activePlanId: targetPlanId, launchAuth })
+      return true
+    }
     json(res, { ok: true, agentId, activePlanId: targetPlanId })
     return true
   }
@@ -502,6 +535,11 @@ export async function tryHandleClaudePlans(ctx: RouteContext): Promise<boolean> 
     const rawBody = { ...(body && typeof body === 'object' ? body : {}), id: idMatch[1] } as Record<string, unknown>
     if (hasAmbiguousTokenField(rawBody)) {
       json(res, { error: 'Invalid plan: token cannot be combined with configDir or tokenSecretId' }, 400)
+      return true
+    }
+    // K1: the same single-line rule as a new plan (commitNewPlan).
+    if (typeof rawBody.label === 'string' && breaksLine(rawBody.label)) {
+      json(res, { error: 'Invalid plan: the label must be a single line, without control characters' }, 400)
       return true
     }
     const { candidate, pendingToken } = prepareTokenCandidate(rawBody, idMatch[1])
