@@ -81,6 +81,9 @@ case "$_smg_provider" in
   *)        _smg_default="plugin:telegram@claude-plugins-official" ;;
 esac
 RESPAWN_PLUGIN="${STUCK_MODAL_PLUGIN:-$_smg_default}"
+# CHANNELUNCONF1110: kept for the respawn below (the unconfigured rule is asked per provider, only for the default).
+SMG_PROVIDER="${_smg_provider:-telegram}"
+SMG_DEFAULT_PLUGIN="$_smg_default"
 unset _smg_provider _smg_default
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [$LOG_TAG] $*" || true; }
@@ -409,17 +412,29 @@ run_guard() {
     # No helper (a half-updated tree): never pass the gromzo id without its exports.
     _extra="$(printf '%s\n' $_extra | grep -vxF 'gromzo-channel@gromzo-local' | tr '\n' ' ')"
   fi
+  # CHANNELUNCONF1110: a token provider with no token comes back WITHOUT its primary, exactly as channels.sh launched
+  # it (scripts/main-channel-configured.sh); the extras stay. Only for the provider's own default plugin: an explicit
+  # STUCK_MODAL_PLUGIN override keeps the old launch.
+  local _primary_id="${RESPAWN_PLUGIN#plugin:}"
   if [ "${_extra_done:-0}" != 1 ]; then
     for _p in $_extra; do
       [ -n "$_p" ] && EXTRA_Q="$EXTRA_Q $(printf '%q' "plugin:$_p")"
     done
-    CHAN_ARG="--channels $PLUGIN_Q${EXTRA_Q}"
+    if [ "$RESPAWN_PLUGIN" = "$SMG_DEFAULT_PLUGIN" ] \
+       && . "$INSTALL_DIR/scripts/main-channel-configured.sh" 2>/dev/null \
+       && main_channel_unconfigured "$SMG_PROVIDER" "$INSTALL_DIR" "${HOME:-}"; then
+      _primary_id=""
+      CHAN_ARG=""
+      [ -n "$EXTRA_Q" ] && CHAN_ARG="--channels${EXTRA_Q}"
+    else
+      CHAN_ARG="--channels $PLUGIN_Q${EXTRA_Q}"
+    fi
   fi
   unset _extra_done
   local SETTINGS_FLAG=""
   if . "$INSTALL_DIR/scripts/main-extra-plugins-settings.sh" 2>/dev/null; then
     # shellcheck disable=SC2086
-    SETTINGS_FLAG="$(main_extra_settings_flag "$INSTALL_DIR" "${RESPAWN_PLUGIN#plugin:}" $_extra)"
+    SETTINGS_FLAG="$(main_extra_settings_flag "$INSTALL_DIR" "$_primary_id" $_extra)"
   fi
 
   # CFGDIR686: the main-agent isolated-config decision belongs on EVERY respawn
@@ -492,7 +507,11 @@ run_guard() {
   local PANE_AUTH_SRC="{ [ ! -f $(sh_single_quote "$INSTALL_DIR/store/.channels-pane-auth") ] || . $(sh_single_quote "$INSTALL_DIR/store/.channels-pane-auth"); } && "
   # MAINAUTH1107: the post-file right AFTER CFG_ENV (see channel-watchdog.sh).
   local PANE_AUTH_POST="{ [ ! -f $(sh_single_quote "$INSTALL_DIR/store/.channels-pane-auth-post") ] || . $(sh_single_quote "$INSTALL_DIR/store/.channels-pane-auth-post"); } && "
-  local RESPAWN_CMD="export PATH=\"${FLEET_VENV_PREFIX}\$HOME/.local/bin:/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin\" && export CLAUDE_CODE_DISABLE_AGENT_VIEW=1 && { [ \"\$(id -u)\" != 0 ] || export IS_SANDBOX=1; } && ${PANE_AUTH_SRC}${CFG_ENV}${PANE_AUTH_POST}${GROMZO_ENV}$CLAUDE_Q --dangerously-skip-permissions${SETTINGS_FLAG} ${MODEL_FLAG}${CHAN_ARG}"
+  # GROMZONEEDSAUTH1109: the Gromzo needs-auth cleanup in the pane, after the kill and the exports, right before claude
+  # (scripts/gromzo-needs-auth-pane.sh). No helper (a half-updated tree): no step, the respawn as before.
+  . "$INSTALL_DIR/scripts/gromzo-needs-auth-pane.sh" 2>/dev/null || gromzo_needs_auth_pane_step() { :; }
+  local GROMZO_NA_STEP; GROMZO_NA_STEP="$(gromzo_needs_auth_pane_step "$INSTALL_DIR" "$CHAN_ARG")"
+  local RESPAWN_CMD="export PATH=\"${FLEET_VENV_PREFIX}\$HOME/.local/bin:/opt/homebrew/bin:\$HOME/.bun/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:/usr/bin:/bin\" && export CLAUDE_CODE_DISABLE_AGENT_VIEW=1 && { [ \"\$(id -u)\" != 0 ] || export IS_SANDBOX=1; } && ${PANE_AUTH_SRC}${CFG_ENV}${PANE_AUTH_POST}${GROMZO_ENV}${GROMZO_NA_STEP}$CLAUDE_Q --dangerously-skip-permissions${SETTINGS_FLAG} ${MODEL_FLAG}${CHAN_ARG}"
 
   log "stuck modal not cleared by Escape -- respawn-pane $SESSION (respawn #$((count+1)))"
   # G: alert ONLY after the respawn-pane actually succeeds, so a failed respawn

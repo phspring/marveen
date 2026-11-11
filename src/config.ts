@@ -8,7 +8,7 @@ import { parseLabelPalette } from './css-color.js'
 import { resolveFleetVenvDir } from './fleet-venv.js'
 import { DISTRIBUTION_DEFAULT_AGENT_MODEL, getSettingDefinition, isOverridesOnly } from './config-registry.js'
 import { FIXED_RESERVED_AGENT_IDS } from './web/sanitize.js'
-import { getProviderType, getChannelToken, getChannelChatId, type ChannelProviderType } from './channel-provider.js'
+import { getProviderType, getMainChannelToken, getChannelChatId, type ChannelProviderType } from './channel-provider.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -154,6 +154,12 @@ export const DEFAULT_AGENT_MODEL =
 // the previous tier on a CLI that cannot run it (default-model-guard.ts); a
 // configured value is the operator's choice and is never replaced.
 export const DEFAULT_AGENT_MODEL_IS_DISTRIBUTION = !cfg('DEFAULT_AGENT_MODEL')
+
+// WORKERMODELFAST1109: the FAST worker session's model. Empty means the same chain
+// as the slow worker, so nothing changes until it is set. A separate key because the
+// fast session only gets short conversational jobs (under 300 characters, no
+// analysis keyword -- classifyPriority), for which the strongest model is overkill.
+export const WORKER_MODEL_FAST = cfg('MARVEEN_WORKER_MODEL_FAST') || ''
 
 export const TELEGRAM_BOT_TOKEN = env['TELEGRAM_BOT_TOKEN'] ?? ''
 export const ALLOWED_CHAT_ID = env['ALLOWED_CHAT_ID'] ?? ''
@@ -546,7 +552,7 @@ export const KANBAN_LABEL_COLORS_REJECTED = kanbanLabelPalette.rejected
 export const KANBAN_LABEL_COLORS_OVERFLOW = kanbanLabelPalette.overflow
 
 export const CHANNEL_PROVIDER: ChannelProviderType = getProviderType(env['CHANNEL_PROVIDER'])
-export const CHANNEL_TOKEN = getChannelToken(CHANNEL_PROVIDER, env)
+export const CHANNEL_TOKEN = getMainChannelToken(CHANNEL_PROVIDER, env)
 export const CHANNEL_CHAT_ID = getChannelChatId(CHANNEL_PROVIDER, env)
 // Where OPERATIONAL alerts go (watchdog respawns, stuck sessions, restart
 // notices). Empty = the owner chat; set it when the person who runs the

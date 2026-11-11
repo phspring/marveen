@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { logger } from '../logger.js'
-import { MAIN_AGENT_ID, VOICE_TRANSCRIBE_INBOUND } from '../config.js'
+import { MAIN_AGENT_ID, VOICE_TRANSCRIBE_INBOUND, APP_TZ } from '../config.js'
+import { formatBacklogTimestamp } from './backlog-timestamp.js'
 import { resolveAgentChannelStateDir } from './voice-directive.js'
 import {
   getPendingMessages,
@@ -46,6 +47,7 @@ import { shouldNotifySenderOfFailure } from './requeue-notice.js'
 import { composeBatchInjection, batchInjectCapFor } from './batch-inject.js'
 import { maybeWakeSubAgentsForTelegram } from './telegram-inbox-wake.js'
 import { isStopMessage, isUrgentDelivery, selectTickWindow } from './message-router-window.js'
+import { busyRowAction, type BusyMemo } from './router-busy-skip.js'
 import { deliveryHoldFor, type DeliveryHold } from './delivery-hold.js'
 import { shouldInterruptForUnblock, buildUnblockInterruptContent } from './unblocks-interrupt.js'
 
@@ -751,7 +753,7 @@ function batchDeliverBacklog(agent: string, agentPending: AgentMessage[], now: n
   for (const m of old) {
     const sender = m.from_agent || 'unknown'
     senders.set(sender, (senders.get(sender) ?? 0) + 1)
-    const dt = new Date(m.created_at * 1000).toISOString().replace('T', ' ').slice(0, 19)
+    const dt = formatBacklogTimestamp(m.created_at, APP_TZ)
     const preview = m.content.length > 120 ? m.content.slice(0, 120) + '…' : m.content
     lines.push(`[${dt}] ${sender}: ${preview}`)
   }
@@ -931,6 +933,10 @@ export async function runMessageRouterTick(): Promise<void> {
     // on their own budget so neither queue starves the other.
     await deliverFederatedBatch(federatedPending, now)
 
+    // Card 3b00596e: recipients found not-ready earlier in THIS tick. Per tick only.
+    const busyThisTick = new Map<string, BusyMemo>()
+    // Recipients whose stale-parked-input janitor already ran this tick; survives the memo being cleared.
+    const janitorTriedThisTick = new Set<string>()
     for (const msg of pending) {
       // Skip messages already batched by the reconnect pre-pass: they are
       // 'done' in the DB now but still appear in our snapshot slice.
@@ -1066,6 +1072,27 @@ export async function runMessageRouterTick(): Promise<void> {
       // Card 795d1f48 (a): an authenticated urgent row takes the same path (isUrgentDelivery),
       // with the same pane checks.
       const isStop = isUrgentDelivery(msg, MAIN_AGENT_ID)
+      const busyAction = busyRowAction(busyThisTick.get(msg.to_agent), msg, ageMs, worksourceServing, JANITOR_PARKED_MIN_AGE_MS, MAIN_AGENT_ID)
+      if (busyAction !== 'check') {
+        const memo = busyThisTick.get(msg.to_agent)!
+        if (busyAction === 'janitor') {
+          memo.janitorTried = true
+          janitorTriedThisTick.add(msg.to_agent)
+          if (await clearStaleParkedInput(session, host)) {
+            busyThisTick.delete(msg.to_agent)
+            routerLoggedMisses.delete(msg.id)
+            continue // input cleared; deliver on the next tick
+          }
+        }
+        if (!routerLoggedMisses.has(msg.id)) {
+          logger.warn({ id: msg.id, to: msg.to_agent, session }, 'Agent message target session busy, will retry')
+          routerLoggedMisses.add(msg.id)
+        }
+        continue
+      }
+      // Card 3b00596e (review R1): a full check decides this recipient afresh. Only its final
+      // "busy, will retry" re-memoizes it; the janitor history is kept in janitorTriedThisTick.
+      busyThisTick.delete(msg.to_agent)
       const paneNotReady = !worksourceServing && !(await isSessionReadyForPrompt(session, host))
       // UNBLOCKS925: the one named case besides STOP/urgent that may reach a busy pane: a row the main agent
       // flagged affects_current_work = 'unblocks'. It takes the urgent path below (same pane-hold check, same
@@ -1183,6 +1210,9 @@ export async function runMessageRouterTick(): Promise<void> {
           logger.warn({ id: msg.id, to: msg.to_agent, session }, 'Agent message target session busy, will retry')
           routerLoggedMisses.add(msg.id)
         }
+        const janitorTried = janitorTriedThisTick.has(msg.to_agent) || ageMs > JANITOR_PARKED_MIN_AGE_MS
+        if (janitorTried) janitorTriedThisTick.add(msg.to_agent)
+        busyThisTick.set(msg.to_agent, { janitorTried })
         continue
       }
 
