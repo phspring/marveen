@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
-  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -84,7 +84,7 @@ describe('composeSkillsDir', () => {
     skill('a'); skill('b'); skill('c')
     composeSkillsDir(lib, tgt, ['a', 'b'])
     // a link someone pointed elsewhere (the retargeting the launcher also guards against)
-    rmSync(join(tgt, 'a')); symlinkSync(join(root, 'evil'), join(tgt, 'a'))
+    unlinkSync(join(tgt, 'a')); symlinkSync(join(root, 'evil'), join(tgt, 'a'))
     const r = composeSkillsDir(lib, tgt, ['a', 'c'])
     expect(r).toMatchObject({ ok: true, report: { linked: ['a', 'c'], removed: ['b'] } })
     expect(entries(tgt)).toEqual(['a', 'c'])
@@ -179,5 +179,29 @@ describe('the marker', () => {
     expect(marker.skills).toEqual(['a', 'b'])
     expect(marker.library).toBe(lib)
     expect(composeSkillsDir(lib, tgt, ['a']).ok).toBe(true)
+  })
+})
+
+describe('the marker is trusted only when it is a real marker', () => {
+  it('a symlinked marker is refused and what it points at is never written', () => {
+    skill('a')
+    const outside = join(root, 'outside.txt')
+    writeFileSync(outside, 'must survive')
+    mkdirSync(tgt, { recursive: true })
+    symlinkSync(outside, join(tgt, COMPOSED_MARKER))
+    const r = composeSkillsDir(lib, tgt, ['a'])
+    expect(r.ok).toBe(false)
+    expect(readFileSync(outside, 'utf-8')).toBe('must survive')
+  })
+
+  it('a stray file named like the marker does not make foreign content ours', () => {
+    skill('a')
+    mkdirSync(tgt, { recursive: true })
+    writeFileSync(join(tgt, 'mine.md'), 'someone else')
+    writeFileSync(join(tgt, COMPOSED_MARKER), 'not json')
+    const r = composeSkillsDir(lib, tgt, ['a'])
+    expect(r.ok).toBe(false)
+    expect(readFileSync(join(tgt, 'mine.md'), 'utf-8')).toBe('someone else')
+    expect(existsSync(join(tgt, 'a'))).toBe(false)
   })
 })

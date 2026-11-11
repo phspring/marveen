@@ -3,11 +3,13 @@
 // who has it: there is nothing to copy and nothing to keep in step.
 //
 // composeSkillsDir() turns a target directory into a real directory of symlinks, one per wanted skill. It only ever
-// removes what it made itself (a symlink into the library), never a real file or directory, and it refuses a target
-// that holds anything of someone else's. Nothing calls it yet.
+// removes what it made itself (a symlink into the library), never a real file or directory. A target that already
+// holds entries is reused only when it carries a real marker (a regular file, not a link, holding a JSON object);
+// otherwise it is refused and nothing is changed. Entries that are not links into the library are left untouched.
+// Nothing calls it yet.
 
 import {
-  existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, symlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { isValidSkillName } from './skill-assignments.js'
@@ -43,6 +45,15 @@ export function listLibrarySkills(libraryDir: string): string[] {
     .sort()
 }
 
+/** A marker counts only when it is a regular file (never a link, which a write would follow) holding a JSON object. */
+function isRealMarker(p: string): boolean {
+  try {
+    if (!lstatSync(p).isFile()) return false
+    const v: unknown = JSON.parse(readFileSync(p, 'utf-8'))
+    return typeof v === 'object' && v !== null && !Array.isArray(v)
+  } catch { return false }
+}
+
 function linkTarget(link: string): string | null {
   try { return resolve(dirname(link), readlinkSync(link)) } catch { return null }
 }
@@ -76,12 +87,15 @@ export function composeSkillsDir(
   try { st = lstatSync(target) } catch { st = null }
   if (st?.isSymbolicLink()) {
     if (!opts.replaceLink) return { ok: false, error: 'the target is a symlink; it is replaced only when asked to' }
-    rmSync(target, { force: true }) // the link itself; rmSync does not follow it
+    unlinkSync(target) // the link itself, never what it points at
     st = null
   }
   if (st && !st.isDirectory()) return { ok: false, error: 'the target exists and is not a directory' }
   if (st) {
     const entries = readdirSync(target)
+    if (entries.includes(COMPOSED_MARKER) && !isRealMarker(join(target, COMPOSED_MARKER))) {
+      return { ok: false, error: 'the composed marker is not a regular JSON file; nothing was changed' }
+    }
     if (entries.length > 0 && !entries.includes(COMPOSED_MARKER)) {
       return { ok: false, error: 'the target holds files that this module did not make; nothing was changed' }
     }
@@ -105,7 +119,7 @@ export function composeSkillsDir(
     }
     if (existing) {
       if (linkTarget(link) === want) { report.unchanged.push(skill); given.add(skill); continue }
-      rmSync(link, { force: true })
+      unlinkSync(link)
     }
     symlinkSync(want, link)
     report.linked.push(skill)
@@ -120,11 +134,13 @@ export function composeSkillsDir(
     try { isLink = lstatSync(p).isSymbolicLink() } catch { isLink = false }
     const to = isLink ? linkTarget(p) : null
     if (isLink && to !== null && insideLibrary(to, lib)) {
-      rmSync(p, { force: true })
+      unlinkSync(p)
       report.removed.push(entry)
     }
   }
 
-  writeFileSync(join(target, COMPOSED_MARKER), JSON.stringify({ library: lib, skills: [...given].sort(), composedAt: new Date().toISOString() }, null, 2))
+  const markerPath = join(target, COMPOSED_MARKER)
+  try { unlinkSync(markerPath) } catch { /* none yet */ }
+  writeFileSync(markerPath, JSON.stringify({ library: lib, skills: [...given].sort(), composedAt: new Date().toISOString() }, null, 2), { flag: 'wx' })
   return { ok: true, report }
 }

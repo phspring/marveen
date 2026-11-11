@@ -34,9 +34,11 @@ Skillenként az érvényes hozzárendelések közül a **legspecifikusabb dönt*
 projektben megadni.
 
 ```json
-{ "skill": "store-decision", "scope": "global" },
-{ "skill": "store-decision", "scope": "agent", "agent": "cpp-developer", "mode": "exclude" },
-{ "skill": "store-decision", "scope": "agent-project", "agent": "cpp-developer", "project": "tover.tafel" }
+[
+  { "skill": "store-decision", "scope": "global" },
+  { "skill": "store-decision", "scope": "agent", "agent": "cpp-developer", "mode": "exclude" },
+  { "skill": "store-decision", "scope": "agent-project", "agent": "cpp-developer", "project": "tover.tafel" }
+]
 ```
 
 A `cpp-developer` így a `store-decision`-t csak a `tover.tafel` projektben kapja meg, máshol nem. A többi ágens mindenhol.
@@ -66,7 +68,7 @@ A `composeSkillsDir` az ágens saját skill-mappáját **valódi mappává** ép
 
 - **Csak azt törli, amit maga csinált:** egy, a könyvtárba mutató symlinket. Valódi fájlt vagy mappát soha, és olyan symlinket sem,
   amely máshová mutat.
-- **Idegen tartalmú mappát nem bánt:** ha a célmappa olyan fájlt tartalmaz, amelyet nem ez a modul csinált, megtagadja, és semmit nem változtat.
+- **Idegen tartalmú mappát nem bánt:** ha a célmappa nem üres, és nincs benne valódi jelölőfájl (`.marveen-composed.json`: sima fájl, JSON-objektummal; a symlink nem számít), megtagadja, és semmit nem változtat. Jelölővel rendelkező mappában az idegen bejegyzések érintetlenek maradnak.
 - **A symlinket cseréli, nem azt, amire mutat.** Ma az izolált config-könyvtár `skills` bejegyzése az egész megosztott skill-mappára mutató
   symlink. Az `replaceLink` opcióval ezt a **linket** váltja a valódi mappára, a megosztott mappa tartalma érintetlen marad.
 - **Idempotens**, és követi a változást: új skillt linkel, a már nem kértet eltávolítja, az elirányított linket helyreállítja.
