@@ -184,6 +184,87 @@ describe('dispatchViaEnvironment', () => {
   })
 })
 
+// Copilot findings on PR #7, each reproduced here before the fix.
+describe('what the flow remembers about a card does not outlive its spell in progress', () => {
+  it('a card that queued, left in_progress and came back queues for the same reason again: the second spell is told too', async () => {
+    const io = makeIO(makeRegistry())
+    await dispatchViaEnvironment(addCard('c1', 'TVR-1', 'src/games'), 'cpp-developer', io)
+    const b = addCard('c2', 'TVR-2', 'src/games/chess')
+    expect(await dispatchViaEnvironment(b, 'cpp-developer', io)).toBe('queued')
+    expect(comments.filter(([id]) => id === 'c2')).toHaveLength(1)
+
+    // B leaves in_progress without ever being dispatched, and a pass notices
+    b.status = 'planned'
+    await reconcileTicketEnvironments(io)
+    // ... and comes back, waiting for the very same ticket
+    b.status = 'in_progress'
+    expect(await dispatchViaEnvironment(b, 'cpp-developer', io)).toBe('queued')
+    expect(comments.filter(([id]) => id === 'c2')).toHaveLength(2)
+  })
+
+  it('a card that failed, left in_progress and came back is retried at once, not after the old delay', async () => {
+    startFails = 'down'
+    const io = makeIO(makeRegistry())
+    const c = addCard('c1', 'TVR-1', 'src')
+    await reconcileTicketEnvironments(io)                    // fails, retry in a minute
+    expect(reported).toHaveLength(1)
+
+    c.status = 'planned'
+    await reconcileTicketEnvironments(io)                    // it left: what was remembered is dropped
+    startFails = null
+    c.status = 'in_progress'
+    clock += 1_000                                           // far inside the old one-minute delay
+    expect((await reconcileTicketEnvironments(io)).dispatched).toEqual(['c1'])
+  })
+
+  it('a card that failed and left is reported afresh when it fails again in a new spell', async () => {
+    startFails = 'down'
+    const io = makeIO(makeRegistry())
+    const c = addCard('c1', 'TVR-1', 'src')
+    await reconcileTicketEnvironments(io)
+    expect(reported).toHaveLength(1)
+    c.status = 'planned'
+    await reconcileTicketEnvironments(io)
+    c.status = 'in_progress'
+    await reconcileTicketEnvironments(io)
+    expect(reported).toHaveLength(2)
+  })
+
+  it('a card that is still in progress and still waiting keeps what was remembered (no new note, no early retry)', async () => {
+    const io = makeIO(makeRegistry())
+    await dispatchViaEnvironment(addCard('c1', 'TVR-1', 'src/games'), 'cpp-developer', io)
+    const b = addCard('c2', 'TVR-2', 'src/games/chess')
+    await dispatchViaEnvironment(b, 'cpp-developer', io)
+    for (let i = 0; i < 5; i++) await reconcileTicketEnvironments(io)
+    expect(comments.filter(([id]) => id === 'c2')).toHaveLength(1)
+  })
+
+  it('a card that is deleted while it waits is forgotten too', async () => {
+    const io = makeIO(makeRegistry())
+    await dispatchViaEnvironment(addCard('c1', 'TVR-1', 'src/games'), 'cpp-developer', io)
+    const b = addCard('c2', 'TVR-2', 'src/games/chess')
+    await dispatchViaEnvironment(b, 'cpp-developer', io)
+    cards.delete('c2')
+    await reconcileTicketEnvironments(io)
+    cards.set('c2', { ...b, status: 'in_progress', dispatched_at: null })
+    await dispatchViaEnvironment(cards.get('c2') as FlowCard, 'cpp-developer', io)
+    expect(comments.filter(([id]) => id === 'c2')).toHaveLength(2)
+  })
+})
+
+describe('the template a flow is given is the canonical agent id', () => {
+  it('a display label is refused with a message that says so, reported on the card, and nothing is created', async () => {
+    const io = makeIO(makeRegistry())
+    const card = addCard('c1', 'TVR-1', 'src')
+    expect(await dispatchViaEnvironment(card, 'Cpp Developer', io)).toBe('failed')
+    expect(reported).toHaveLength(1)
+    expect(reported[0][1]).toContain('invalid template name')
+    expect(sent).toEqual([])
+    expect(listAgentInstances(agentsBase)).toEqual([])
+    expect(listWorkspaces(io.env.registry.projects[0])).toEqual([])
+  })
+})
+
 describe('reconcileTicketEnvironments: releasing', () => {
   async function ready(io: FlowIO, id: string, ref: string, scope: string): Promise<FlowCard> {
     const c = addCard(id, ref, scope)

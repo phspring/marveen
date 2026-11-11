@@ -32,7 +32,12 @@ export interface FlowCard {
 
 export interface FlowIO {
   env: EnvironmentDeps
-  /** The agent a card's assignee names (display name, any casing), or null when it names nobody dispatchable. */
+  /**
+   * The CANONICAL agent id the card's assignee names: the agent's directory name under agents/ (lower case, as
+   * sanitizeAgentName makes it), never a display label. It is passed on as the template of the instance, and a
+   * label would be refused there ("invalid template name"). Null when the assignee names nobody dispatchable.
+   * The live implementation resolves a display name or any casing to that id.
+   */
   resolveTemplate: (card: FlowCard) => string | null
   /** An agent that is itself an instance cannot be a template: the card takes today's path. */
   isInstance: (agent: string) => boolean
@@ -63,6 +68,12 @@ const MAX_BACKOFF_MS = 30 * 60_000
 /** Forget everything remembered (tests, and a restart of the feature). */
 export function resetTicketEnvironmentFlow(): void {
   inFlight.clear(); queuedNote.clear(); failures.clear()
+}
+
+/** Forget what is remembered about every card that is not in `keep`, except one being prepared right now. */
+function forgetCardsNotIn(keep: ReadonlySet<string>): void {
+  for (const id of [...queuedNote.keys()]) if (!keep.has(id) && !inFlight.has(id)) queuedNote.delete(id)
+  for (const id of [...failures.keys()]) if (!keep.has(id) && !inFlight.has(id)) failures.delete(id)
 }
 
 function toTicketCard(c: FlowCard): TicketCard {
@@ -178,7 +189,14 @@ export async function reconcileTicketEnvironments(io: FlowIO): Promise<Reconcile
     }
   }
 
-  for (const card of io.listUndispatchedInProgress()) {
+  const waiting = io.listUndispatchedInProgress()
+  // What was remembered about a card is only good for the spell it was remembered in. A card that left in_progress
+  // without being dispatched (moved back, done, archived, deleted) is forgotten here: otherwise the maps grow for as
+  // long as the process lives, and, worse, a card that comes back and waits for the same reason would not be told
+  // again (the note would look like a repeat), and would inherit the old retry delay.
+  forgetCardsNotIn(new Set(waiting.map((c) => c.id)))
+
+  for (const card of waiting) {
     if (!isolatingProjectOf(card, io)) continue
     const f = failures.get(card.id)
     if (f && f.retryAt > now) continue
