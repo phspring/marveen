@@ -40,7 +40,7 @@ import { scheduleRecoveryBrief, cancelRecoveryBrief } from './restart-recovery-b
 import { requeueAbandonedAndNotify } from './requeue-notice.js'
 import { beginRestart, endRestart } from './restart-lock.js'
 import { cancelRestartWake, scheduleRestartWake, type RestartWakeRequest } from './restart-wake.js'
-import { agentDir, listAgentNames, readAgentModel, resolveAgentModelDetailed, readAgentClaudeConfigDir, readAgentClaudePlan, readAgentChannelProvider, agentConfigCarriesSenderRoleGate, readAgentAuthMode, readAgentDisplayName, readAgentRemoteConfig, readAgentRemoteHost, readAgentRunAsUser, readAgentMemoryIsolation, readAgentStateObserver, readAgentWorksourceChannel, readAgentCustomProvider, readAgentExtraChannels, readAgentGromzo, readAgentSenderRoleGatePolicy, readFileOr, readJsonObjectForWrite } from './agent-config.js'
+import { agentDir, listAgentNames, readAgentModel, resolveAgentModelDetailed, readAgentClaudeConfigDir, readAgentClaudePlan, readAgentChannelProvider, agentConfigCarriesSenderRoleGate, readAgentAuthMode, readAgentDisplayName, readAgentRemoteConfig, readAgentRemoteHost, readAgentRunAsUser, readAgentSkillsMode, readAgentMemoryIsolation, readAgentStateObserver, readAgentWorksourceChannel, readAgentCustomProvider, readAgentExtraChannels, readAgentGromzo, readAgentSenderRoleGatePolicy, readFileOr, readJsonObjectForWrite } from './agent-config.js'
 import { buildExtraChannelLaunch, enableExtraPlugins, gromzoTokenFile, mxdAgentSockUsable } from './agent-extra-channels.js'
 import { filterMainGromzoIds, mainGromzoPrimaryReady, MAIN_GROMZO_PLUGIN_ID } from './main-gromzo-launch.js'
 import { ensureGromzoMarketplace } from './gromzo-marketplace.js'
@@ -104,7 +104,10 @@ import { getEffectiveSettingValue } from '../settings-store.js'
 import { filterInheritableMcpServers, readInheritableMcpServerNames, logNotInherited } from './mcp-inheritance.js'
 import { isSingleLineEnvValue, readEnvFile } from '../env.js'
 import { loadProfileTemplate, profileWantsThinChiefHandoff } from './profiles.js'
-import { resolveAgentSecurityProfile } from './agent-team.js'
+import { resolveAgentSecurityProfile, readAgentTeam } from './agent-team.js'
+import { readInstanceOf } from './agent-instance.js'
+import { applySkills } from './skill-composition.js'
+import { readSkillAssignments, SKILL_LIBRARY_DIR } from './skill-assignments-store.js'
 import { helperTokenEnv, syncAgentTokenOnStart } from './agent-tokens.js'
 import { enforceStrictPermissionMode, writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureProjectRootInClaudeMd, ensureAutonomySection, ensureSkillsPathTrapSection, ensureSkillSectionCurrent, ensureSystemDirectiveAuthSection, ensureAgentIdHeaderSection, ensureThinChiefHandoffSection, ensureMemorySearchLabelSection, ensureFleetAuthSection, ensureEvidenceSection, ensureMcpListChannelSection, ensureMessageCloseSection, ensureStrictApiSection, ensureApiHelperSection, ensureBackgroundCheckpointSection } from './agent-scaffold.js'
 import { schedulePluginUnlockAfterRespawn } from './channel-plugin-unlock.js'
@@ -1193,6 +1196,32 @@ export function sharedEnvAuthKeysCopiedTo(name: string): string[] {
   return shared.filter((k) => present.has(k))
 }
 
+/** The skills entry of an isolated config directory, per the agent's skillsMode; the outcome is logged. */
+function applyAgentSkills(cfg: string, name: string): { mayLinkShared: boolean } {
+  const mode = readAgentSkillsMode(name)
+  try {
+    const { outcome, mayLinkShared } = applySkills(cfg, name, mode, {
+      libraryDir: SKILL_LIBRARY_DIR,
+      assignments: () => readSkillAssignments(),
+      instanceOf: (n) => readInstanceOf(agentDir(n)),
+      reportsTo: (n) => readAgentTeam(n).reportsTo,
+    })
+    if (outcome.kind === 'composed') {
+      logger.info({ name, skills: outcome.skills, missing: outcome.missing, linked: outcome.linked, removed: outcome.removed }, 'isolated-config: skills composed from the library')
+      if (outcome.missing.length) logger.warn({ name, missing: outcome.missing }, 'isolated-config: assigned skills are not in the library')
+    } else if (outcome.kind === 'fallback') {
+      logger.warn({ name, why: outcome.why }, 'isolated-config: skillsMode composed could not be applied, the skills entry was left as it was')
+    } else if (outcome.kind === 'kept') {
+      logger.warn({ name, why: outcome.why }, 'isolated-config: back to shared skills, but the composed directory was kept')
+    }
+    return { mayLinkShared }
+  } catch (err) {
+    // An unexpected failure must not delete or replace anything: leave the entry as it is.
+    logger.warn({ err, name }, 'isolated-config: skills could not be applied, the skills entry was left as it was')
+    return { mayLinkShared: false }
+  }
+}
+
 function provisionIsolatedConfigDir(
   cfg: string,
   cwd: string,
@@ -1216,7 +1245,11 @@ function provisionIsolatedConfigDir(
     // an otherwise correctly authenticated agent lands on the login picker
     // (measured on korall, 2026-08-19). It needs a REAL file of its own here.
     const perUserAgent = readAgentRunAsUser(name) != null
+    // The skills entry: today's link to the whole shared directory, or (skillsMode: composed) a directory built
+    // from the skill library. Decided first, so the loop below never replaces a directory this made.
+    const skills = applyAgentSkills(cfg, name)
     for (const entry of readdirSync(realClaude)) {
+      if (entry === 'skills' && !skills.mayLinkShared) continue
       if (ISOLATED_CONFIG_SKIP.has(entry) || (perUserAgent && entry === '.claude.json')) {
         // Defensively drop a real .credentials.json that an older build may have
         // symlinked/copied here, so the env-var token is the only auth source.

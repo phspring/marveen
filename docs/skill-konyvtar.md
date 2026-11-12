@@ -2,8 +2,10 @@
 
 > Egy skill egyetlen példányban él egy könyvtárban. Hogy ki kapja meg, azt hozzárendelések döntik el, az ágens saját
 > skill-mappája pedig symlinkekből áll össze. Ha a skillt a könyvtárban átírod, mindenki a frissítettet látja.
-> **Állapot: alap.** A szabályok és az összeállítás megvannak és tesztelve vannak, de **semmi nem hívja őket**: az ágens-indító
-> még a mai módon, az egész `~/.claude/skills`-re mutató symlinkkel dolgozik. Az éles viselkedés változatlan.
+> **Állapot: bekötve, ágensenként kapcsolóval.** Az ágens-indító (`provisionIsolatedConfigDir`) az `agent-config.json`
+> `skillsMode` értéke szerint építi az ágens `skills` bejegyzését. **Alapból (`shared`) semmi nem változik**: az egész
+> `~/.claude/skills`-re mutató symlink marad. A mai skillek átvitele a könyvtárba még hátra van (lásd lent), ezért a
+> `composed` módot egyelőre csak egy ágensen érdemes próbálni.
 
 ---
 
@@ -34,11 +36,13 @@ Skillenként az érvényes hozzárendelések közül a **legspecifikusabb dönt*
 projektben megadni.
 
 ```json
-[
-  { "skill": "store-decision", "scope": "global" },
-  { "skill": "store-decision", "scope": "agent", "agent": "cpp-developer", "mode": "exclude" },
-  { "skill": "store-decision", "scope": "agent-project", "agent": "cpp-developer", "project": "tover.tafel" }
-]
+{
+  "assignments": [
+    { "skill": "store-decision", "scope": "global" },
+    { "skill": "store-decision", "scope": "agent", "agent": "cpp-developer", "mode": "exclude" },
+    { "skill": "store-decision", "scope": "agent-project", "agent": "cpp-developer", "project": "tover.tafel" }
+  ]
+}
 ```
 
 A `cpp-developer` így a `store-decision`-t csak a `tover.tafel` projektben kapja meg, máshol nem. A többi ágens mindenhol.
@@ -76,11 +80,19 @@ A `composeSkillsDir` az ágens saját skill-mappáját **valódi mappává** ép
 
 ---
 
+### Az indítóba kötés (`src/web/skill-composition.ts`)
+
+Egy ágens `agent-config.json`-ja: `"skillsMode": "composed"`. Bármi más (hiány, elírás) `shared`.
+
+- **Kontextus:** az ágens (egy jegy-példány a **sablonját** jelenti), a projekt (a jegy-példánynál a jegy projektje, másnál nincs), és a csapatok: **maga az ágens és a fölötte lévő vezetők** a `reportsTo` láncon (hurok és mélység-határ ellen védve). Egy `team: "ui-ux-architect"` hozzárendelést tehát az architect maga is megkap.
+- **`composed`:** az izolált config `skills` bejegyzése valódi mappa lesz, benne symlinkekkel a feloldott skillekre. A régi, az egész megosztott mappára mutató **linket** cseréli, a megosztott mappa érintetlen. A hiányzó (hozzárendelt, de nincs a könyvtárban) skill a naplóban figyelmeztetés.
+- **Nem tudja megcsinálni** (nincs könyvtár, idegen fájlokat tartalmazó valódi mappa van az útban): figyelmeztetés a naplóban, a `skills` bejegyzés úgy marad, ahogy volt. Egy valódi mappát az indító soha nem cserél le.
+- **Vissza `shared`-re:** a saját összeállított mappát leszedi (csak a könyvtárba mutató linkeket és a jelölőt), és visszajön a megosztott link. Ha a mappában valódi fájl is van, a mappa **marad**, és a napló jelzi.
+- **Figyelem:** egy `composed` ágens csak azt kapja, amit a hozzárendelések adnak. Üres hozzárendelés-fájllal nulla skillje van. Átváltás előtt a kívánt skilleknek a könyvtárban kell lenniük (lásd a 2. pontot lent).
+
 ## Mi van még hátra
 
-1. **Bekötés az ágens-indítóba**, kapcsoló mögött (ágensenként `skillsMode: composed`, alapból a mai mód): a `provisionIsolatedConfigDir` a
-   `skills` bejegyzést nem az egész megosztott mappára symlinkeli, hanem a kiszámolt készletből építi. A kontextus (ágens, projekt,
-   vezetői lánc) ott áll rendelkezésre; a jegy-példánynál az ágens a sablon, a projekt a jegyé.
+1. ~~Bekötés az ágens-indítóba~~ (kész, lásd fent).
 2. **A mai skillek átvitele** a könyvtárba, és mindegyikhez egy `global` hozzárendelés, hogy az eredmény mindenkinek ugyanaz legyen, mint ma.
 3. **Karantén:** egy új skill jóváhagyás után kerüljön a könyvtárba (ma a `~/.claude/skills`-be vagy egy ágens mappájába).
 4. **A bundle-export** a hozzárendeléseket vigye a skill-fájlok helyett.

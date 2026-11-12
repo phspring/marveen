@@ -494,6 +494,19 @@ export function readAgentAuthMode(name: string): AuthMode {
   return 'shared'
 }
 
+// How an agent gets its skills (docs/skill-konyvtar.md). `shared` (the default, today's behaviour): the isolated config
+// directory links the whole shared skills directory. `composed`: its skills directory is built from the skill library
+// by the assignments. Anything else reads as `shared`: a typo must not switch an agent's skills.
+export type SkillsMode = 'shared' | 'composed'
+
+export function readAgentSkillsMode(name: string): SkillsMode {
+  try {
+    const config = JSON.parse(readFileOr(join(agentDir(name), 'agent-config.json'), '{}'))
+    if (config && config.skillsMode === 'composed') return 'composed'
+  } catch { /* fall through */ }
+  return 'shared'
+}
+
 // Opt-in per-agent auto-memory isolation (default OFF). When true, the
 // launcher plants a stub git root in the agent dir so Claude Code's
 // file-based auto-memory resolves to the agent's own project key instead of
