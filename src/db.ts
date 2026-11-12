@@ -4101,11 +4101,15 @@ export function upsertKanbanProjectDescription(project: string, description: str
   return { changed: true }
 }
 
-/** The stored description of one project (it can exist for a project with no card), or null when none is stored. */
+/**
+ * The stored description row of one project (it can exist for a project with no card), or null when there is none.
+ * Matched case-insensitively, as project names are everywhere else, and returned even when the text is empty: what an
+ * empty description means on screen is the caller's decision.
+ */
 export function getKanbanProjectDescription(project: string): { description: string; updatedAt: number | null } | null {
-  const row = db.prepare('SELECT description, description_updated_at AS updatedAt FROM kanban_projects WHERE project = ?')
+  const row = db.prepare('SELECT description, description_updated_at AS updatedAt FROM kanban_projects WHERE project = ? COLLATE NOCASE')
     .get(project) as { description: string | null; updatedAt: number | null } | undefined
-  return row && row.description ? { description: row.description, updatedAt: row.updatedAt } : null
+  return row ? { description: row.description ?? '', updatedAt: row.updatedAt } : null
 }
 
 export function deleteKanbanCard(id: string): boolean {

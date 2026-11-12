@@ -103,6 +103,18 @@ describe('getKanbanProjectDescription', () => {
     expect(getKanbanProjectDescription('cardless')?.description).toBe('text')
   })
 
+  it('is found whatever the casing of the name, so the registry spelling meets the board spelling', () => {
+    upsertKanbanProjectDescription('Ticket-Test', 'about it')
+    expect(getKanbanProjectDescription('ticket-test')?.description).toBe('about it')
+    expect(getKanbanProjectDescription('TICKET-TEST')?.description).toBe('about it')
+  })
+
+  it('a row whose description was emptied is still returned (an empty text), not treated as absent', () => {
+    upsertKanbanProjectDescription('p', 'text')
+    upsertKanbanProjectDescription('p', '')
+    expect(getKanbanProjectDescription('p')).toMatchObject({ description: '' })
+  })
+
   it('goes together with the summaries for a project that has cards', () => {
     createKanbanCard({ id: 'a', title: 'A', project: 'p' })
     const rows = joinProjectOverview(listKanbanProjectSummaries(), registry({ p: worktree() }), () => 0)
