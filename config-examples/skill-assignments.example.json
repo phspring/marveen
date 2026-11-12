@@ -1,0 +1,15 @@
+{
+  "assignments": [
+    { "skill": "recall", "scope": "global" },
+    { "skill": "fleet-hygiene", "scope": "global" },
+
+    { "skill": "tover-sim", "scope": "project", "project": "tover.tafel" },
+    { "skill": "tvr-feature", "scope": "project", "project": "tover.tafel" },
+
+    { "skill": "tvr-write-feature-test", "scope": "team", "team": "cpp-architect" },
+
+    { "skill": "store-decision", "scope": "agent", "agent": "cpp-developer", "mode": "exclude" },
+
+    { "skill": "pixel-gate", "scope": "agent-project", "agent": "cpp-developer", "project": "tover.tafel" }
+  ]
+}
