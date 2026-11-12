@@ -23,6 +23,7 @@ function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'init.defaultBranch=develop', ...args], { cwd, encoding: 'utf-8', env: { ...process.env, ...IDENT } })
 }
 
+const MARKER_DIR = '.marveen-workspaces'
 let base: string
 let agentsBase: string
 let running: Set<string>
@@ -264,7 +265,7 @@ describe('release', () => {
     writeFileSync(join(agentsBase, r.instance, 'memory', 'learned.md'), 'a build quirk\n')
 
     const rel = await releaseTicketEnvironment(c, deps)
-    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: null })
+    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
     expect(stopped).toEqual([r.instance])
     expect(existsSync(join(agentsBase, r.instance))).toBe(false)
     expect(existsSync(r.workspace)).toBe(false)
@@ -281,7 +282,7 @@ describe('release', () => {
     if (r.kind !== 'ready') throw new Error('not ready')
     writeFileSync(join(r.workspace, 'work.txt'), 'x\n')
     git(r.workspace, 'add', '.'); git(r.workspace, 'commit', '-qm', 'work'); git(r.workspace, 'push', '-q', 'origin', 'feature/TVR-1')
-    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null })
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
     expect(existsSync(r.workspace)).toBe(false)
     expect(git(join(base, 'repo'), 'branch', '--list', 'feature/TVR-1').trim()).not.toBe('')
   })
@@ -302,11 +303,46 @@ describe('release', () => {
     writeFileSync(join(r.workspace, 'wip.txt'), 'not committed\n')
 
     const rel = await releaseTicketEnvironment(c, deps)
-    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: r.workspace })
+    expect(rel).toEqual({ ok: true, released: true, keptWorkspace: r.workspace, keptNew: true })
     expect(existsSync(r.workspace)).toBe(true)
     expect(existsSync(join(agentsBase, r.instance))).toBe(false)
     expect(comments.at(-1)?.[1]).toContain('nem töröltem')
     expect(comments.at(-1)?.[1]).toContain(r.workspace)
+  })
+
+  it('a workspace that stays kept is not announced again: no second comment, nothing released, not new', async () => {
+    const deps = makeDeps(makeRegistry())
+    const c = card('c1', 'TVR-1', 'src')
+    const r = await prepareTicketEnvironment(c, 'cpp-developer', deps)
+    if (r.kind !== 'ready') throw new Error('not ready')
+    writeFileSync(join(r.workspace, 'wip.txt'), 'not committed\n')
+    await releaseTicketEnvironment(c, deps)
+    const told = comments.length
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: false, keptWorkspace: r.workspace, keptNew: false })
+    expect(comments.length).toBe(told)
+    // once the work is saved and the workspace goes, a later keep of the same card is announced afresh
+    rmSync(join(r.workspace, 'wip.txt'))
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
+  })
+
+  it('a workspace that vanished by another path is forgotten, so a later keep is announced again', async () => {
+    const deps = makeDeps(makeRegistry())
+    const c = card('c1', 'TVR-1', 'src')
+    const first = await prepareTicketEnvironment(c, 'cpp-developer', deps)
+    if (first.kind !== 'ready') throw new Error('not ready')
+    writeFileSync(join(first.workspace, 'wip.txt'), 'not committed\n')
+    expect(await releaseTicketEnvironment(c, deps)).toMatchObject({ keptWorkspace: first.workspace, keptNew: true })
+    // removed by hand: the marker is gone, nothing is left to release
+    rmSync(join(base, 'ws', MARKER_DIR), { recursive: true, force: true })
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
+    git(join(base, 'repo'), 'worktree', 'remove', '--force', first.workspace)
+    // the same card gets a new environment with unsaved work again: that keep is news
+    const again = await prepareTicketEnvironment(c, 'cpp-developer', deps)
+    if (again.kind !== 'ready') throw new Error('not ready')
+    writeFileSync(join(again.workspace, 'wip.txt'), 'not committed\n')
+    const told = comments.length
+    expect(await releaseTicketEnvironment(c, deps)).toMatchObject({ keptWorkspace: again.workspace, keptNew: true })
+    expect(comments.length).toBe(told + 1)
   })
 
   it('keeps a workspace with commits no remote has seen', async () => {
@@ -319,7 +355,7 @@ describe('release', () => {
     expect(await releaseTicketEnvironment(c, deps)).toMatchObject({ ok: true, keptWorkspace: r.workspace })
     git(r.workspace, 'push', '-q', 'origin', 'feature/TVR-1')
     // once pushed, a second release (instance already gone, workspace still there) removes it
-    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null })
+    expect(await releaseTicketEnvironment(c, deps)).toEqual({ ok: true, released: true, keptWorkspace: null, keptNew: false })
     expect(existsSync(r.workspace)).toBe(false)
   })
 
@@ -348,9 +384,9 @@ describe('release', () => {
 
   it('a card with no environment, or in a project that does not isolate, releases nothing', async () => {
     const deps = makeDeps(makeRegistry())
-    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null })
-    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', 'shared'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null })
-    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', null), deps)).toEqual({ ok: true, released: false, keptWorkspace: null })
+    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
+    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', 'shared'), deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
+    expect(await releaseTicketEnvironment(card('c9', 'TVR-9', 'x', null), deps)).toEqual({ ok: true, released: false, keptWorkspace: null, keptNew: false })
     expect(stopped).toEqual([])
   })
 

@@ -35,7 +35,7 @@ izolációt véletlenül.
 | Mező | Jelentés |
 |---|---|
 | kulcs (név) | Egyezik a kanban-kártya `project` szövegével, kis- és nagybetű mindegy |
-| `repoPath` | A repó fő checkoutjának abszolút útja |
+| `repoPath` | A repó fő checkoutjának abszolút útja. A repónak kell egy `origin` remote-ja, amelyen a `baseBranch` megvan: a workspace `origin/<baseBranch>`-ből készül, és enélkül a jegy nem indul (`origin/<ág> does not exist in the repo`). |
 | `repoKind` | `plain` (alapérték) vagy `submodule` |
 | `mode` | `shared` (alapérték) vagy `worktree` |
 | `baseBranch` | Ebből indul a jegy ága (alapérték: `develop`) |
@@ -122,7 +122,9 @@ az `isAgentRunning()` kb. 42 helyen szerepel). Így egyik sem változik, és a k
   shell nélkül, és soha nem használ `GIT_DIR`/`GIT_WORK_TREE` változót (a környezetből ki is szűri). Az ágens a kész
   mappában sima `git -C <literális abszolút út>` parancsokat használ, amelyeket a kapu a telepítésen kívül átenged.
 - **Nem dob el munkát:** a törlés megtagadja a nem commitolt változást vagy a még egy remote által sem látott
-  commitot tartalmazó workspace-t, hacsak nincs `force`.
+  commitot tartalmazó workspace-t, hacsak nincs `force`. A megtartott workspace-ről a kártya **egyszer** kap kommentet
+  (nem a percenkénti menetek mindegyikében), és a következő menetek nem jelentik újra. Amint a munka pusholva van
+  (vagy a változás el van mentve), a következő menet eltávolítja a workspace-t.
 - **Az ág sorsa:** az ág megmarad, ha van rajta saját commit (pusholt is). Az az ág, amely semmit nem tartalmaz
   (minden commitja már az indulópontjában van), a workspace törlésekor törlődik, és ha egy korábbi kísérletből
   maradt ilyen, a következő létrehozás is eltakarítja. Így egy üres ág sosem akadályozza ugyanannak a jegynek az
@@ -183,6 +185,11 @@ aktív oszlopokat (route-ok, az archiváló söprés, a táblát közvetlenül �
    **előtt** fut, ezért a lezárt jegy helyére a sorban álló jegy ugyanabban a körben bekerül.
 
 A `waiting` és a `testing` oszlopban a környezet megmarad, mert a munka még nem ért véget (teszt, review, várakozás).
+
+A menet naplósora (`Ticket environments reconciled`) csak akkor jelenik meg, ha történt valami. A `released` azokat a jegyeket
+sorolja fel, amelyeknél ebben a menetben tényleg lebontott valamit (egy példányt vagy a workspace-t). A `kept` azokat, amelyeknél
+a workspace most derült ki először, hogy nem mentett munka miatt megmarad. Ugyanaz a jegy lehet mindkettőn: a példánya
+megszűnt, a workspace-e marad.
 
 ---
 

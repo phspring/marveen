@@ -297,10 +297,26 @@ describe('reconcileTicketEnvironments: releasing', () => {
     expect(existsSync(sent[0].workspace)).toBe(true)
     expect(listAgentInstances(agentsBase)).toEqual([])
     expect(comments.at(-1)?.[1]).toContain('nem töröltem')
-    // the next pass finds nothing new to do for it: the workspace is still there and still reported only by the comment
+    // the next pass finds nothing new to do for it: the workspace is still there, and the card is not told again
+    // (every pass is a minute apart: a workspace kept for a day would otherwise collect 1440 identical comments)
     comments = []
-    await reconcileTicketEnvironments(io)
+    const again = await reconcileTicketEnvironments(io)
     expect(existsSync(sent[0].workspace)).toBe(true)
+    expect(comments).toEqual([])
+    expect(again).toEqual({ released: [], kept: [], dispatched: [], errors: [] })
+  })
+
+  it('a kept workspace is reported again once it is removed, and the card is told once more on a new keep', async () => {
+    const io = makeIO(makeRegistry())
+    const c = await ready(io, 'c1', 'TVR-1', 'a')
+    const ws = sent[0].workspace
+    writeFileSync(join(ws, 'wip.txt'), 'not committed\n')
+    c.status = 'done'
+    await reconcileTicketEnvironments(io)
+    rmSync(join(ws, 'wip.txt'))
+    const removed = await reconcileTicketEnvironments(io)
+    expect(removed.released).toEqual(['TVR-1'])
+    expect(existsSync(ws)).toBe(false)
   })
 
   it('does nothing when every card is still active', async () => {

@@ -57,7 +57,13 @@ export type PrepareResult =
   | { kind: 'failed'; error: string }
 
 export type ReleaseResult =
-  | { ok: true; released: boolean; keptWorkspace: string | null }
+  /**
+   * released: something was taken down in this call (an instance, or the workspace). keptWorkspace: the workspace is
+   * still there because it holds work no remote has seen. keptNew: this call is the first to find it so and announced
+   * it (a comment is best-effort, so it says the notice was attempted, not that it was written); the same workspace
+   * on the next pass is kept again without a new comment and without being reported.
+   */
+  | { ok: true; released: boolean; keptWorkspace: string | null; keptNew: boolean }
   | { ok: false; error: string }
 
 /** The ticket key of a card: its external reference when it has a usable one, otherwise its card id. */
@@ -160,19 +166,31 @@ export async function prepareTicketEnvironment(card: TicketCard, template: strin
   }
 }
 
+/** The workspaces the card has already been told were kept, by card and path; forgotten once the workspace is gone. */
+const keptNotified = new Set<string>()
+
+/** Forget what the card was told about kept workspaces: none is there any more, however it went. */
+function forgetKept(cardId: string): void {
+  const prefix = `${cardId}\0`
+  for (const n of [...keptNotified]) if (n.startsWith(prefix)) keptNotified.delete(n)
+}
+
 /**
  * Tear the environment of a card down. The instance goes (its memory is archived into the template first). The
  * workspace goes too, unless it holds work no remote has seen: then it is kept and reported, never forced.
  */
 export async function releaseTicketEnvironment(card: TicketCard, deps: EnvironmentDeps): Promise<ReleaseResult> {
   const project = projectOf(card, deps.registry)
-  if (!project) return { ok: true, released: false, keptWorkspace: null }
+  if (!project) return { ok: true, released: false, keptWorkspace: null, keptNew: false }
   const ticket = ticketKeyOf(card)
-  if (!ticket) return { ok: true, released: false, keptWorkspace: null }
+  if (!ticket) return { ok: true, released: false, keptWorkspace: null, keptNew: false }
 
   const instances = listAgentInstances(deps.agentsBase).filter((i) => i.of.ticket === ticket && i.of.project === project.name)
   const marker = listWorkspaces(project).find((m) => m.ticket === ticket)
-  if (instances.length === 0 && !marker) return { ok: true, released: false, keptWorkspace: null }
+  // No workspace record: whatever was kept for this card is gone (removed here earlier, or by hand), so a later keep
+  // is news again, and the memory does not outlive the workspaces it is about.
+  if (!marker) forgetKept(card.id)
+  if (instances.length === 0 && !marker) return { ok: true, released: false, keptWorkspace: null, keptNew: false }
 
   for (const i of instances) {
     if (deps.isRunning(i.name)) {
@@ -187,16 +205,28 @@ export async function releaseTicketEnvironment(card: TicketCard, deps: Environme
   }
 
   let kept: string | null = null
+  let keptNew = false
+  let workspaceRemoved = false
   if (marker) {
     const plan = planFromMarker(project, marker)
     if (!plan) return { ok: false, error: 'the workspace record cannot be read back, the workspace was kept' }
     const r = await removeWorkspace(plan, {}, deps.git)
+    const notice = `${card.id}\0${plan.path}`
     if (!r.ok) {
       kept = plan.path
-      deps.comment(card.id, `A workspace-et nem töröltem, mert nem mentett munka van benne (nem commitolt változás vagy olyan commit, amit még nem látott távoli ág): ${plan.path}. ${r.error}`)
+      // Every reconcile pass lands here again for a workspace that stays (a minute apart): the card is told the first
+      // time only, or a workspace kept for a day would collect a thousand identical comments.
+      if (!keptNotified.has(notice)) {
+        keptNotified.add(notice)
+        keptNew = true
+        deps.comment(card.id, `A workspace-et nem töröltem, mert nem mentett munka van benne (nem commitolt változás vagy olyan commit, amit még nem látott távoli ág): ${plan.path}. ${r.error}`)
+      }
+    } else {
+      workspaceRemoved = true
+      keptNotified.delete(notice)
     }
   }
-  return { ok: true, released: true, keptWorkspace: kept }
+  return { ok: true, released: instances.length > 0 || workspaceRemoved, keptWorkspace: kept, keptNew }
 }
 
 /** Is there an environment for this card right now (an instance or a workspace)? */
