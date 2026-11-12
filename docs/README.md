@@ -33,6 +33,7 @@ Minden lap két szemszögből mutatja be a funkciót:
 | [Hook-metaadatok és env-kapcsolók](hook-metaadatok.md) | Oldalfájl a settings.json hookjai mellett: a CI megfogja a csendes hook-átírást, átrendezést és a hiányzó szkriptet; naplózó hook env-ből kikapcsolható, kapu soha ([EN](en/hook-metadata.md)) |
 | [Jegy-környezet](jegy-kornyezet.md) | Projekt-regisztráció és jegyenkénti elkülönített checkout (worktree vagy klón) és példány-ágens; a `TICKET_ENVIRONMENTS` kapcsoló mögött bekötve, alapból ki |
 | [Skill-könyvtár](skill-konyvtar.md) | Egy skill egy példányban, öt hatókörű hozzárendelés (globális, projekt, csapat, ágens, ágens×projekt), symlinkes összeállítás másolás nélkül; alap, még nincs bekötve, az éles viselkedés változatlan |
+| [Nestor-példány](nestor-peldany.md) | Egy telepítés = egy önálló példány: saját név (`nestor`, példányonként állítható), port, service-ek, és saját `nestor` indítófájl; a `doctor` megmutatja, mit használ két példány közösen. Első szelet, a meglévő telepítések nem változnak |
 | [Nehéz-feladat kapu](heavy-job-gate.md) | Egyszerre egy nehéz feladat (render, teljes tesztsor, build) érkezési sorrendben, memória-padló és saját cgroup-memóriakeret; opt-in, csak Linuxon |
 | [macOS: Spotlight és a System Data](macos-spotlight.md) | Ha a „System Data” nő: a Spotlight-index a sok napló/jsonl/sqlite írástól; ellenőrzés, javítás a Keresési adatvédelem listával |
 

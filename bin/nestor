@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+# nestor: the launcher of ONE install (docs/nestor-peldany.md). Every install carries its own copy of this file and it
+# acts only on the install it sits in (resolved from its own path, through symlinks): its service units, its pid file,
+# its logs, its tmux server. Two installs side by side each have their own `nestor`, and neither can touch the other.
+#
+#   nestor init [--agent N] [--system N] [--port P] name a new install (default nestor); never changes a key already set
+#   nestor info | doctor | register | unregister   what this instance owns / does it share anything / the machine's list
+#   nestor start|stop|restart [dashboard|channels] the service units of this install (pid-file mode when it has none)
+#   nestor status                                  units, pid, and whether the dashboard answers on ITS port
+#   nestor logs [-f] [dashboard|channels]
+#   nestor attach                                  the main agent's tmux session, on this instance's tmux server
+#   nestor install-service [--force]               write the dashboard's user unit for this install (no enable)
+#   nestor node ...                                run the Node binary this install uses
+#
+# Only a fixed list of .env keys is read (the file holds secrets), the same way scripts/channels.sh does.
+
+set -u
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+cd "$ROOT" || exit 1
+
+env_val() { # <KEY> -> the last value of KEY in this install's .env, quotes stripped; empty when absent
+  [ -f "$ROOT/.env" ] || return 0
+  grep -E "^[[:space:]]*$1[[:space:]]*=" "$ROOT/.env" | tail -1 \
+    | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'
+}
+
+MAIN_ID="$(env_val MAIN_AGENT_ID)"; MAIN_ID="${MAIN_ID:-marveen}"  # the app's own fallback for an install that names nothing (nestor init names it)
+UNIT_ID="$(env_val SERVICE_ID)"; UNIT_ID="${UNIT_ID:-$MAIN_ID}"
+PORT="$(env_val WEB_PORT)"; PORT="${PORT:-3420}"
+HOST="$(env_val WEB_HOST)"; HOST="${HOST:-127.0.0.1}"
+TMUX_DIR="$(env_val TMUX_TMPDIR)"
+
+# The Node binary: NESTOR_NODE in the environment, else in .env, else the one on PATH. Resolved only by the commands
+# that run Node (help, status, logs and attach do not need one).
+NODE_BIN=""
+need_node() {
+  [ -n "$NODE_BIN" ] && return 0
+  local n="${NESTOR_NODE:-$(env_val NESTOR_NODE)}"
+  [ -n "$n" ] || n="$(command -v node || true)"
+  if [ -z "$n" ] || [ ! -x "$n" ]; then
+    echo "nestor: no Node binary (set NESTOR_NODE in $ROOT/.env, or put node on PATH)" >&2; exit 1
+  fi
+  local major; major="$("$n" -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)"
+  if [ "$major" -lt 22 ]; then
+    echo "nestor: $n is Node $major, this install needs 22 or newer (set NESTOR_NODE in $ROOT/.env)" >&2; exit 1
+  fi
+  NODE_BIN="$n"
+}
+
+DASH_UNIT="${UNIT_ID}-dashboard"
+CHAN_UNIT="${UNIT_ID}-channels"
+PIDFILE="$ROOT/store/claudeclaw.pid"
+UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+
+have_systemd() { command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; }
+unit_exists() { have_systemd && systemctl --user cat "$1.service" >/dev/null 2>&1; }
+# A unit is this install's only when it runs from this directory. A unit with the same name that belongs to another
+# install (an install without SERVICE_ID/MAIN_AGENT_ID falls back to the default name, the same one a second install
+# has) is never started, stopped or read by this launcher.
+unit_workdir() { systemctl --user show "$1.service" -p WorkingDirectory --value 2>/dev/null; }
+unit_owned() { unit_exists "$1" && [ "$(readlink -f "$(unit_workdir "$1")" 2>/dev/null)" = "$ROOT" ]; }
+unit_foreign() { unit_exists "$1" && ! unit_owned "$1"; }
+
+# the tmux server of THIS instance: its own directory when .env names one, else the machine's default
+tmux_here() { if [ -n "$TMUX_DIR" ]; then TMUX_TMPDIR="$TMUX_DIR" tmux "$@"; else tmux "$@"; fi; }
+
+cli() { # <cmd> [args]: the TypeScript side (needs a build)
+  need_node
+  if [ ! -f "$ROOT/dist/instance-cli.js" ]; then echo "nestor: dist/instance-cli.js is missing, run the build first (npm run build)" >&2; return 1; fi
+  "$NODE_BIN" "$ROOT/dist/instance-cli.js" "$@"
+}
+
+# The pid file's process, but only when it really is THIS install's dashboard: its working directory is $ROOT and it
+# runs dist/index.js. A pid file that a crash left behind, or one that points at another instance, is never trusted.
+own_pid() {
+  local pid; pid="$(cat "$PIDFILE" 2>/dev/null)"
+  [ -n "$pid" ] && [ -d "/proc/$pid" ] || return 1
+  [ "$(readlink -f "/proc/$pid/cwd" 2>/dev/null)" = "$ROOT" ] || return 1
+  tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q "dist/index.js" || return 1
+  echo "$pid"
+}
+
+units_to_act_on() { # <target> -> the unit names that exist for it
+  local t="${1:-all}" u out=()
+  case "$t" in
+    dashboard) out=("$DASH_UNIT") ;;
+    channels) out=("$CHAN_UNIT") ;;
+    all) out=("$DASH_UNIT" "$CHAN_UNIT") ;;
+    *) echo "nestor: unknown target '$t' (dashboard, channels)" >&2; return 2 ;;
+  esac
+  for u in "${out[@]}"; do
+    if unit_foreign "$u"; then
+      echo "nestor: the unit $u belongs to another install ($(unit_workdir "$u")), not to $ROOT; refusing to touch it." >&2
+      echo "        Give this install its own name: SERVICE_ID in $ROOT/.env, then: nestor install-service" >&2
+      return 3
+    fi
+    unit_owned "$u" && echo "$u"
+  done
+  return 0
+}
+
+pidfile_start() {
+  need_node
+  if own_pid >/dev/null; then echo "dashboard already running (pid $(own_pid))"; return 0; fi
+  mkdir -p "$ROOT/store"
+  # this instance's own tmux server, when its .env names a directory for it (the dashboard and every agent it starts
+  # inherit it); the directory has to exist before tmux makes its socket in it
+  if [ -n "$TMUX_DIR" ]; then mkdir -p "$TMUX_DIR"; export TMUX_TMPDIR="$TMUX_DIR"; fi
+  setsid nohup "$NODE_BIN" "$ROOT/dist/index.js" >> "$ROOT/store/dashboard.log" 2>> "$ROOT/store/dashboard.error.log" < /dev/null &
+  echo "dashboard started in the background (log: $ROOT/store/dashboard.log)"
+}
+pidfile_stop() {
+  local pid; pid="$(own_pid)" || { echo "no dashboard of this install is running (pid file empty, stale, or not ours)"; return 0; }
+  kill "$pid" && echo "stopped dashboard (pid $pid)"
+}
+
+act() { # <start|stop|restart> [target]
+  local verb="$1" target="${2:-all}" units u rc=0
+  units="$(units_to_act_on "$target")" || return $?
+  if [ -n "$units" ]; then
+    for u in $units; do systemctl --user "$verb" "$u" && echo "$verb $u" || rc=1; done
+    return $rc
+  fi
+  if [ "$target" = "channels" ]; then echo "nestor: no unit $CHAN_UNIT for this install" >&2; return 1; fi
+  case "$verb" in
+    start) pidfile_start ;;
+    stop) pidfile_stop ;;
+    restart) pidfile_stop; sleep 1; pidfile_start ;;
+  esac
+}
+
+status() {
+  echo "instance $UNIT_ID  ($ROOT)"
+  local u
+  for u in "$DASH_UNIT" "$CHAN_UNIT"; do
+    if unit_owned "$u"; then printf '  %-32s %s\n' "$u" "$(systemctl --user is-active "$u" 2>/dev/null)"
+    elif unit_foreign "$u"; then printf '  %-32s %s\n' "$u" "NOT OURS (belongs to $(unit_workdir "$u"))"
+    else printf '  %-32s %s\n' "$u" "no unit"; fi
+  done
+  if own_pid >/dev/null; then echo "  pid-file process                 running (pid $(own_pid))"; fi
+  local code; code="$(curl -s -o /dev/null -m 3 -w '%{http_code}' "http://${HOST}:${PORT}/" 2>/dev/null || true)"
+  local ours=0
+  own_pid >/dev/null && ours=1
+  for u in "$DASH_UNIT"; do unit_owned "$u" && [ "$(systemctl --user is-active "$u" 2>/dev/null)" = "active" ] && ours=1; done
+  if [ -n "$code" ] && [ "$code" != "000" ] && [ "$ours" = 0 ]; then
+    echo "  http://${HOST}:${PORT}/          answers ($code), but NOT from this install: another process holds this port"
+  else
+    echo "  http://${HOST}:${PORT}/          ${code:-no answer}"
+  fi
+}
+
+install_service() {
+  local force=0; [ "${1:-}" = "--force" ] && force=1
+  need_node
+  have_systemd || { echo "nestor: no systemd user manager here" >&2; return 1; }
+  mkdir -p "$UNIT_DIR"
+  local file="$UNIT_DIR/$DASH_UNIT.service" node_dir; node_dir="$(dirname "$NODE_BIN")"
+  local text
+  text="[Unit]
+Description=Nestor dashboard ($UNIT_ID, $ROOT)
+After=network.target
+
+[Service]
+Type=simple
+# KillMode=process: the dashboard spawns agent tmux sessions that live in this unit's cgroup; the default kill mode
+# would take them down with every restart.
+KillMode=process
+WorkingDirectory=$ROOT
+ExecStartPre=$ROOT/scripts/ensure-native-modules.sh
+ExecStart=$NODE_BIN $ROOT/dist/index.js
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=16384
+StandardOutput=append:$ROOT/store/dashboard.log
+StandardError=append:$ROOT/store/dashboard.error.log
+Environment=PATH=$node_dir:$HOME/.local/bin:$HOME/.bun/bin:/usr/local/bin:/usr/bin:/bin
+Environment=HOME=$HOME
+${TMUX_DIR:+Environment=TMUX_TMPDIR=$TMUX_DIR
+}
+[Install]
+WantedBy=default.target"
+  # a unit file of the same name that runs from another directory is another install's: never overwritten, not even
+  # with --force
+  if [ -f "$file" ]; then
+    local wd; wd="$(sed -n 's/^WorkingDirectory=//p' "$file" | head -1)"
+    if [ -n "$wd" ] && [ "$(readlink -f "$wd" 2>/dev/null)" != "$ROOT" ]; then
+      echo "nestor: $file belongs to another install ($wd); not touching it. Set a SERVICE_ID of its own in $ROOT/.env first." >&2
+      return 1
+    fi
+  fi
+  if [ -f "$file" ] && [ "$force" = 0 ] && [ "$(cat "$file")" != "$text" ]; then
+    echo "nestor: $file exists and differs; nothing written (use: nestor install-service --force)" >&2; return 1
+  fi
+  mkdir -p "$ROOT/store"
+  printf '%s\n' "$text" > "$file"
+  systemctl --user daemon-reload
+  echo "wrote $file"
+  echo "start it with: nestor start dashboard   (enable at boot: systemctl --user enable $DASH_UNIT)"
+}
+
+cmd="${1:-}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  info|doctor|init|register|unregister) cli "$cmd" "$ROOT" "$@" ;;
+  start|stop|restart) act "$cmd" "${1:-all}" ;;
+  status) status ;;
+  logs)
+    follow=""; [ "${1:-}" = "-f" ] && { follow="-f"; shift; }
+    target="${1:-dashboard}"
+    u="$DASH_UNIT"; f="$ROOT/store/dashboard.log"
+    [ "$target" = "channels" ] && { u="$CHAN_UNIT"; f="$ROOT/store/channels.log"; }
+    if unit_owned "$u"; then journalctl --user -u "$u" ${follow:+-f} -n 100 --no-pager
+    else tail -n 100 ${follow:+-f} "$f"; fi ;;
+  attach) tmux_here attach -t "=${MAIN_ID}-channels" ;;
+  install-service) install_service "${1:-}" ;;
+  node) need_node; exec "$NODE_BIN" "$@" ;;
+  ""|help|-h|--help) sed -n '2,17p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  *) echo "nestor: unknown command '$cmd' (try: nestor help)" >&2; exit 2 ;;
+esac
