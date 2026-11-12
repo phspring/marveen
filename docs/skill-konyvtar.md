@@ -90,10 +90,23 @@ Egy ágens `agent-config.json`-ja: `"skillsMode": "composed"`. Bármi más (hiá
 - **Vissza `shared`-re:** a saját összeállított mappát leszedi (csak a könyvtárba mutató linkeket és a jelölőt), és visszajön a megosztott link. Ha a mappában valódi fájl is van, a mappa **marad**, és a napló jelzi.
 - **Figyelem:** egy `composed` ágens csak azt kapja, amit a hozzárendelések adnak. Üres hozzárendelés-fájllal nulla skillje van. Átváltás előtt a kívánt skilleknek a könyvtárban kell lenniük (lásd a 2. pontot lent).
 
+### A mai skillek átvitele (`scripts/skill-library-import.ts`)
+
+```
+npx tsx scripts/skill-library-import.ts            # próba: mit másolna, és mit miért nem
+npx tsx scripts/skill-library-import.ts --apply    # megcsinálja
+```
+
+A megosztott skill-mappa (`~/.claude/skills`) minden skillje bekerül a könyvtárba, mindegyikhez egy `global` hozzárendeléssel, így egy
+`composed` ágens ugyanazt kapja, mint ma. **Csak másol**: a megosztott mappa nem változik, a `shared` módú ágensek tovább működnek.
+Nem ír felül könyvtárbeli skillt, meglévő hozzárendelést nem módosít (és a fájl egyéb mezőit megtartja), és egy skillen **belüli symlinket nem követ**
+(bármilyen olvasható fájlt behúzhatna), hanem kihagyja és jelzi. Egy olvashatatlan hozzárendelés-fájlnál semmit nem ír.
+A második futás nem csinál semmit. A `--shared`, `--library`, `--assignments` kapcsolókkal más helyre is mutathat.
+
 ## Mi van még hátra
 
 1. ~~Bekötés az ágens-indítóba~~ (kész, lásd fent).
-2. **A mai skillek átvitele** a könyvtárba, és mindegyikhez egy `global` hozzárendelés, hogy az eredmény mindenkinek ugyanaz legyen, mint ma.
+2. ~~A mai skillek átvitele~~ (kész: `scripts/skill-library-import.ts`, lásd alább).
 3. **Karantén:** egy új skill jóváhagyás után kerüljön a könyvtárba (ma a `~/.claude/skills`-be vagy egy ágens mappájába).
 4. **A bundle-export** a hozzárendeléseket vigye a skill-fájlok helyett.
 5. **A `store/skill-assignments.json` védelme a gate-ben**, mint a `store/projects.json`-é: ma bármely ágens írhatja, és megadhatna magának
