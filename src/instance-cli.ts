@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'n
 import { join } from 'node:path'
 import { assertEnvEntry } from './env.js'
 import { parseEnvContent } from './env-parse.js'
-import { conflictsWithOthers, DEFAULT_NEW_INSTANCE_NAME, nextFreePort, selfWarnings, type Conflict, type InstanceInfo } from './instance.js'
+import { conflictsWithOthers, DEFAULT_NEW_INSTANCE_NAME, LEGACY_FALLBACK_NAME, nextFreePort, selfWarnings, type Conflict, type InstanceInfo } from './instance.js'
 import { describeInstallAt, readRegistry, registerInstance, registryDir, unregisterInstance } from './instance-registry.js'
 
 export function renderInfo(i: InstanceInfo): string {
@@ -71,22 +71,38 @@ function flag(args: string[], name: string): string | undefined {
 }
 
 /**
- * Give a new install its own names: the main agent (`--agent`, default nestor), the system / service units
- * (`--system`, default the agent's name) and a port nobody registered uses (`--port` to choose). Written into the
- * .env ONLY for the keys it does not already state: an existing value is never changed.
+ * An install that has been running: its database or its isolated Claude config exists. Its names and port are
+ * whatever the app has been using, even where the .env says nothing (the app falls back to marveen / 3420).
+ */
+export function isExistingInstall(root: string): boolean {
+  return existsSync(join(root, 'store', 'claudeclaw.db')) || existsSync(join(root, '.channels-config'))
+}
+
+/**
+ * Write an install's own names and port into its .env, only for the keys it does not already state.
+ *  - a NEW install (never run): `nestor` for the main agent, the system named after it, the first port no
+ *    registered instance uses;
+ *  - an EXISTING install: what it uses today (the app's fallback name, the default port), so the .env says
+ *    out loud what the app was already doing and nothing is renamed or moved. A different name or port is asked
+ *    for with --agent / --system / --port, and is then a rename, which changes the tmux session and the unit names.
+ * An existing value in the .env is never changed.
  */
 export function initInstance(root: string, args: string[], registered: readonly InstanceInfo[], out: (s: string) => void, err: (s: string) => void): number {
   const idRx = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
-  const agent = flag(args, '--agent') ?? DEFAULT_NEW_INSTANCE_NAME
-  const system = flag(args, '--system') ?? agent
+  const existing = isExistingInstall(root)
+  const agentArg = flag(args, '--agent')
+  const systemArg = flag(args, '--system')
   const portArg = flag(args, '--port')
+  const agent = agentArg ?? (existing ? LEGACY_FALLBACK_NAME : DEFAULT_NEW_INSTANCE_NAME)
+  const system = systemArg ?? agent
   if (!idRx.test(agent) || !idRx.test(system)) { err('init: --agent and --system must be letters, digits, dot, dash or underscore (at most 64)'); return 2 }
   if (portArg !== undefined && !(/^\d{1,5}$/.test(portArg) && +portArg > 0 && +portArg < 65536)) { err('init: --port must be a number from 1 to 65535'); return 2 }
 
   const envPath = join(root, '.env')
   const text = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : ''
   const have = parseEnvContent(text, ['MAIN_AGENT_ID', 'SERVICE_ID', 'WEB_PORT'])
-  const port = portArg ?? String(nextFreePort(registered.map((i) => i.port)))
+  // an existing install is already on a port, the default one unless its .env says otherwise
+  const port = portArg ?? (existing ? '3420' : String(nextFreePort(registered.map((i) => i.port))))
   const wanted: Array<[string, string]> = [['MAIN_AGENT_ID', agent], ['SERVICE_ID', system], ['WEB_PORT', port]]
   const added = wanted.filter(([k]) => !(k in have))
   for (const [k, v] of added) assertEnvEntry(k, v)
@@ -98,6 +114,11 @@ export function initInstance(root: string, args: string[], registered: readonly 
   out(`wrote to ${envPath}: ${added.map(([k, v]) => `${k}=${v}`).join(', ')}`)
   const kept = wanted.filter(([k]) => k in have).map(([k]) => `${k}=${have[k]}`)
   if (kept.length) out(`already set, left as it was: ${kept.join(', ')}`)
+  if (existing && agentArg === undefined) {
+    out(`this install has been running, so it keeps its current names (${LEGACY_FALLBACK_NAME}): nothing is renamed. To rename it, pass --agent and --system (that changes the tmux session and the unit names: stop its services first).`)
+  } else if (existing && agent !== LEGACY_FALLBACK_NAME && !('MAIN_AGENT_ID' in have)) {
+    out(`WARNING: this install has been running under the name ${LEGACY_FALLBACK_NAME}; ${agent} is a RENAME (new tmux session and unit names). Stop its services first and re-install them.`)
+  }
   out('next: nestor register, then nestor doctor')
   return 0
 }

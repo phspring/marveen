@@ -236,6 +236,53 @@ describe('names: nestor for a new instance, configurable per instance', () => {
       expect(readFileSync(join(root, '.env'), 'utf-8')).toBe('MAIN_AGENT_ID=a\nSERVICE_ID=a\nWEB_PORT=3999\n')
     })
 
+    describe('an install that has been running keeps what it uses today', () => {
+      const markRunning = () => { mkdirSync(join(root, 'store')); writeFileSync(join(root, 'store', 'claudeclaw.db'), '') }
+
+      it('is pinned to marveen and the default port, not renamed to nestor and not moved to another port', () => {
+        markRunning()
+        const other = join(base, 'other'); mkdirSync(other); writeFileSync(join(other, '.env'), 'WEB_PORT=3420\n')
+        run(['register', other])
+        const r = run(['init', root])
+        const env = readFileSync(join(root, '.env'), 'utf-8')
+        expect(env).toContain('MAIN_AGENT_ID=marveen')
+        expect(env).toContain('SERVICE_ID=marveen')
+        expect(env).toContain('WEB_PORT=3420') // it is on 3420 already; doctor, not init, says another instance shares it
+        expect(env).not.toContain('nestor')
+        expect(r.out).toMatch(/keeps its current names \(marveen\): nothing is renamed/)
+      })
+
+      it('the pinned names are the ones the app was already using', () => {
+        markRunning()
+        const before = describeInstance(root, '', '/home/u')
+        run(['init', root])
+        const after = describeInstance(root, readFileSync(join(root, '.env'), 'utf-8'), '/home/u')
+        expect({ main: after.mainAgentId, unit: after.unitId, session: after.channelsSession, port: after.port, units: after.units })
+          .toEqual({ main: before.mainAgentId, unit: before.unitId, session: before.channelsSession, port: before.port, units: before.units })
+      })
+
+      it('an install with only its isolated Claude config counts as running too', () => {
+        mkdirSync(join(root, '.channels-config'))
+        run(['init', root])
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=marveen')
+      })
+
+      it('a rename is possible only when asked for, and says it is one', () => {
+        markRunning()
+        const r = run(['init', root, '--agent', 'nestor'])
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=nestor')
+        expect(r.out).toMatch(/WARNING: .*RENAME/)
+      })
+
+      it('a key that is already set is neither pinned over nor called a rename', () => {
+        markRunning()
+        writeFileSync(join(root, '.env'), 'MAIN_AGENT_ID=ada\n')
+        const r = run(['init', root, '--agent', 'zed'])
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=ada')
+        expect(r.out).not.toMatch(/WARNING/)
+      })
+    })
+
     it('refuses a bad name or port and writes nothing', () => {
       expect(run(['init', root, '--agent', 'bad name']).code).toBe(2)
       expect(run(['init', root, '--port', '99999']).code).toBe(2)
