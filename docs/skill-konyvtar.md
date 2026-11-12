@@ -86,7 +86,7 @@ Egy ágens `agent-config.json`-ja: `"skillsMode": "composed"`. Bármi más (hiá
 
 - **Kontextus:** az ágens (egy jegy-példány a **sablonját** jelenti), a projekt (a jegy-példánynál a jegy projektje, másnál nincs), és a csapatok: **maga az ágens és a fölötte lévő vezetők** a `reportsTo` láncon (hurok és mélység-határ ellen védve). Egy `team: "ui-ux-architect"` hozzárendelést tehát az architect maga is megkap.
 - **`composed`:** az izolált config `skills` bejegyzése valódi mappa lesz, benne symlinkekkel a feloldott skillekre. A régi, az egész megosztott mappára mutató **linket** cseréli, a megosztott mappa érintetlen. A hiányzó (hozzárendelt, de nincs a könyvtárban) skill a naplóban figyelmeztetés.
-- **Nem tudja megcsinálni** (nincs könyvtár, idegen fájlokat tartalmazó valódi mappa van az útban): figyelmeztetés a naplóban, a `skills` bejegyzés úgy marad, ahogy volt. Egy valódi mappát az indító soha nem cserél le.
+- **Nem tudja megcsinálni** (nincs könyvtár, idegen fájlokat tartalmazó valódi mappa van az útban): figyelmeztetés a naplóban, a `skills` bejegyzés úgy marad, ahogy volt. `composed` módban az indító soha nem cserél le valódi mappát. (A `shared` módban a régi viselkedés marad: a bejegyzés-ciklus egy elavult valódi másolatot a megosztott linkre cserél, ahogy eddig is.)
 - **Vissza `shared`-re:** a saját összeállított mappát leszedi (csak a könyvtárba mutató linkeket és a jelölőt), és visszajön a megosztott link. Ha a mappában valódi fájl is van, a mappa **marad**, és a napló jelzi.
 - **Figyelem:** egy `composed` ágens csak azt kapja, amit a hozzárendelések adnak. Üres hozzárendelés-fájllal nulla skillje van. Átváltás előtt a kívánt skilleknek a könyvtárban kell lenniük (lásd a 2. pontot lent).
 

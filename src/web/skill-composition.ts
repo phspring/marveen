@@ -54,7 +54,9 @@ export type SkillsOutcome =
 /**
  * Bring `<cfg>/skills` in line with the agent's mode. Returns what happened; never throws for an expected state.
  * `mayLinkShared` tells the caller whether it may (re)create the shared link for this entry: false whenever a real
- * directory has to stay (composed, or a composed one holding foreign entries).
+ * directory has to stay (composed, or a composed one holding foreign entries). In SHARED mode with a real directory
+ * that is not ours it stays true on purpose: that is today's behaviour of the launcher's entry loop (a stale real copy
+ * is replaced by the shared link), and the default mode must not change. Composed mode never replaces a real directory.
  */
 export function applySkills(
   cfg: string, name: string, mode: 'shared' | 'composed', io: SkillCompositionIO,

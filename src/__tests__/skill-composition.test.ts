@@ -154,7 +154,9 @@ describe('applySkills, shared', () => {
     expect(existsSync(join(cfg, 'skills', 'mine.txt'))).toBe(true)
   })
 
-  it('a plain real directory without our marker is not ours: untouched', () => {
+  it('a plain real directory without our marker is not ours: applySkills leaves it alone and does not take part', () => {
+    // In shared mode the launcher's entry loop (today's behaviour, unchanged) replaces a stale real copy with the
+    // shared link; that is why mayLinkShared stays true here. The composer itself never removes anything it did not make.
     mkdirSync(join(cfg, 'skills'))
     writeFileSync(join(cfg, 'skills', 'x.txt'), 'x\n')
     expect(applySkills(cfg, 'dev', 'shared', io())).toEqual({ outcome: { kind: 'shared' }, mayLinkShared: true })
