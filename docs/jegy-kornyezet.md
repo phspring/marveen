@@ -52,6 +52,13 @@ ismeretlen mód; kétszer szereplő név vagy Jira-kulcs.
 ugyanazzal az OS-felhasználóval futó ágens által írható, tehát egy parancs-mező automatikus futtatási út lenne egy
 feltört ágensnek. Előbb a fájlt a db-write-gate védett listájára kell tenni (a tulajdonos döntése), utána jöhet.
 
+**A Projektek oldalon** minden projekt kártyáján látszik a regisztráció állapota: a mód (`shared` vagy `worktree`), a
+repó **neve** (az útvonala nem: az a gép könyvtárszerkezete, amire az oldalnak nincs szüksége), az alapág, és
+`worktree` módban a `maxParallel` meg az éppen élő workspace-ek száma. A nem regisztrált projekt "nincs regisztrálva
+(közös checkout)" jelölést kap. A regisztrált, de kártya nélküli projekt is megjelenik (nulla kártyával), így egy most
+felvett projekt azonnal látszik. Az adatot a `GET /api/kanban-projects/summary` adja a `registration` mezőben
+(`src/projects-overview.ts`); a kártyák számai továbbra is a kanban-táblából jönnek.
+
 ### Hogyan talál a kártya projektet
 
 Rögzített sorrendben (`resolveProject`):

@@ -765,6 +765,13 @@ main {
   resize: vertical;
   box-sizing: border-box;
 }
+.project-card-reg {
+  display: flex;
+  gap: 6px 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  color: var(--muted, inherit);
+}
 .project-card-assignees {
   display: flex;
   gap: 10px;

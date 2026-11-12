@@ -1,4 +1,7 @@
-import { listKanbanProjectSummaries, upsertKanbanProjectDescription } from '../../db.js'
+import { getKanbanProjectDescription, listKanbanProjectSummaries, upsertKanbanProjectDescription } from '../../db.js'
+import { joinProjectOverview } from '../../projects-overview.js'
+import { readProjectRegistry } from '../project-store.js'
+import { listWorkspaces } from '../workspace.js'
 import { readBody, json } from '../http-helpers.js'
 import type { RouteContext } from './types.js'
 
@@ -13,7 +16,14 @@ export async function tryHandleKanbanProjects(ctx: RouteContext): Promise<boolea
   const { req, res, path, method } = ctx
 
   if (path === '/api/kanban-projects/summary' && method === 'GET') {
-    json(res, listKanbanProjectSummaries())
+    // The board's numbers joined with how each project is registered (store/projects.json): the mode, the repo, the
+    // base branch, and the registered projects that have no card yet.
+    json(res, joinProjectOverview(
+      listKanbanProjectSummaries(),
+      readProjectRegistry(),
+      (p) => listWorkspaces(p).length,
+      getKanbanProjectDescription,
+    ))
     return true
   }
 
