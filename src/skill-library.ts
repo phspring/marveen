@@ -6,10 +6,10 @@
 // removes what it made itself (a symlink into the library), never a real file or directory. A target that already
 // holds entries is reused only when it carries a real marker (a regular file, not a link, holding a JSON object);
 // otherwise it is refused and nothing is changed. Entries that are not links into the library are left untouched.
-// Nothing calls it yet.
+// The agent launcher calls it for the agents that opted in (skillsMode: composed, src/web/skill-composition.ts).
 
 import {
-  existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, symlinkSync, unlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync, writeFileSync,
 } from 'node:fs'
 import { dirname, join, resolve, sep } from 'node:path'
 import { isValidSkillName } from './skill-assignments.js'
@@ -143,4 +143,34 @@ export function composeSkillsDir(
   try { unlinkSync(markerPath) } catch { /* none yet */ }
   writeFileSync(markerPath, JSON.stringify({ library: lib, skills: [...given].sort(), composedAt: new Date().toISOString() }, null, 2), { flag: 'wx' })
   return { ok: true, report }
+}
+
+/**
+ * Undo `composeSkillsDir` for an agent that goes back to the shared skills: remove what this module made in
+ * `targetDir` (the links into the library and the marker) and the directory itself when that leaves it empty.
+ * Nothing else is touched: a real file or directory in it stays, and then the directory stays too (`left` says so),
+ * so the caller must not replace it. A directory without a real marker is not ours: `foreign`, untouched.
+ */
+export function releaseComposedDir(libraryDir: string, targetDir: string): { state: 'absent' | 'foreign' | 'released' | 'left'; left: string[] } {
+  const target = resolve(targetDir)
+  const lib = resolve(libraryDir)
+  let st: ReturnType<typeof lstatSync>
+  try { st = lstatSync(target) } catch { return { state: 'absent', left: [] } }
+  if (st.isSymbolicLink() || !st.isDirectory()) return { state: 'foreign', left: [] }
+  const markerPath = join(target, COMPOSED_MARKER)
+  if (!isRealMarker(markerPath)) return { state: 'foreign', left: [] }
+  const left: string[] = []
+  for (const entry of readdirSync(target)) {
+    if (entry === COMPOSED_MARKER) continue
+    const p = join(target, entry)
+    let isLink = false
+    try { isLink = lstatSync(p).isSymbolicLink() } catch { isLink = false }
+    const to = isLink ? linkTarget(p) : null
+    if (isLink && to !== null && insideLibrary(to, lib)) unlinkSync(p)
+    else left.push(entry)
+  }
+  if (left.length > 0) return { state: 'left', left }
+  unlinkSync(markerPath)
+  rmdirSync(target)
+  return { state: 'released', left: [] }
 }
