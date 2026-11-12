@@ -182,7 +182,8 @@ export async function reconcileTicketEnvironments(io: FlowIO): Promise<Reconcile
         const r = await releaseTicketEnvironment(ticketCard, io.env)
         if (!r.ok) { report.errors.push(`${ticket}: ${r.error}`); continue }
         if (r.released) report.released.push(ticket)
-        if (r.keptWorkspace) report.kept.push(ticket)
+        // kept: the pass that first finds the workspace held back; the same one on later passes is not news
+        if (r.keptWorkspace && r.keptNew) report.kept.push(ticket)
       } catch (err) {
         report.errors.push(`${ticket}: ${err instanceof Error ? err.message : String(err)}`)
       }
