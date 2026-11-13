@@ -1,0 +1,53 @@
+# Security review of every PR with anthropics/claude-code-security-review: Claude reads the PR diff, looks for
+# high-confidence vulnerabilities (injection, auth bypass, secrets, unsafe deserialization, XSS, ...), filters out
+# false positives, and comments the findings on the changed lines.
+#
+# - Needs the CLAUDE_API_KEY repository secret (an Anthropic API key enabled for Claude Code). Without it the job is
+#   SKIPPED, not failed, so adding this workflow blocks no PR.
+# - Runs only for PRs from this repository. The action is not hardened against prompt injection (its README), and a
+#   fork's PR gets neither our secrets nor a write token anyway.
+# - The action is pinned to a commit, not @main: a moved tag or branch must not change what runs with our API key and a
+#   PR-write token. Bump it deliberately (read the diff first).
+# - By default it reviews a PR once (the action caches a marker per PR); later pushes to the same PR are not
+#   re-reviewed. That is the action's choice to keep the noise and the cost down.
+# - Not a required status check. The agent-side counterpart is the code-security-review seed skill.
+name: security-review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: security-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HAS_KEY: ${{ secrets.CLAUDE_API_KEY != '' }}
+    steps:
+      - name: No CLAUDE_API_KEY secret, skipping
+        if: env.HAS_KEY != 'true'
+        run: 'echo "::notice::security-review skipped, the CLAUDE_API_KEY repository secret is not set."'
+
+      - uses: actions/checkout@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      - uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # main, 2026-02-11
+        if: env.HAS_KEY == 'true'
+        with:
+          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          claude-model: claude-opus-5-5
+          comment-pr: true
+          upload-results: true
+          exclude-directories: vendor,node_modules
+          claudecode-timeout: 20
