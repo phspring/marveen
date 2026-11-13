@@ -40,7 +40,7 @@ describe('voice channel identity', () => {
   })
 
   it('classifies as channel-inbound, so every receiving agent sees the provenance', () => {
-    const cls = classifyAgentMessage(VOICE_CHANNEL_AGENT_ID, 'marveen')
+    const cls = classifyAgentMessage(VOICE_CHANNEL_AGENT_ID, 'nestor')
     expect(cls).not.toBeNull()
     expect(cls!.category).toBe('channel-inbound')
     expect(cls!.safeFrom).toBe(VOICE_CHANNEL_AGENT_ID)
@@ -55,7 +55,7 @@ describe('voice channel identity', () => {
 
 describe('/api/messages write guard for the voice channel', () => {
   async function postAs(from: string, auth?: { kind: string; device?: string; deviceId?: number }) {
-    const payload = JSON.stringify({ from, to: 'marveen', content: 'a dictated line' })
+    const payload = JSON.stringify({ from, to: 'nestor', content: 'a dictated line' })
     const req = Readable.from([Buffer.from(payload)]) as any
     let status = 0
     let body = ''

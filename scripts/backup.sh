@@ -211,14 +211,14 @@ if [[ -d "${REPO_ROOT}/.claude/channels" ]]; then
 fi
 # launchd jobs for this fleet. The job labels are com.<MAIN_AGENT_ID>.<service>
 # (see src/web/main-agent.ts), so resolve MAIN_AGENT_ID the way the app does
-# (src/env.ts: read from .env, default "marveen" when unset) instead of
+# (src/env.ts: read from .env, default "nestor" when unset) instead of
 # hardcoding one deployment's prefix. Parsing mirrors env.ts: last definition
 # wins, surrounding matching quotes stripped.
-MAIN_AGENT_ID="marveen"
+MAIN_AGENT_ID="nestor"
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   # `|| true`: with `set -o pipefail`, a no-match grep would otherwise fail the
   # whole substitution (and, under `set -e`, abort the backup) on any install
-  # that leaves MAIN_AGENT_ID unset and relies on the "marveen" default.
+  # that leaves MAIN_AGENT_ID unset and relies on the "nestor" default.
   _mid="$(grep -E '^[[:space:]]*MAIN_AGENT_ID[[:space:]]*=' "${REPO_ROOT}/.env" | tail -1 \
     | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/' || true)"
   [[ -n "${_mid}" ]] && MAIN_AGENT_ID="${_mid}"
@@ -403,7 +403,7 @@ if [[ "${missing}" -gt 0 ]]; then
   # code or mask the real failure.
   # To the install's own main agent: MAIN_AGENT_ID as resolved near the top of
   # this script (from .env the way the app reads it: last definition wins,
-  # quotes stripped, default "marveen"), never a fixed name -- an id that does
+  # quotes stripped, default "nestor"), never a fixed name -- an id that does
   # not exist on this install makes the alert go nowhere (card a8a92d55). Do not
   # re-read .env here: a second, simpler parse took the FIRST definition, kept
   # the quotes, and without `|| true` aborted the script under pipefail on an

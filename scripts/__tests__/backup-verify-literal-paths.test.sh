@@ -92,7 +92,7 @@ set --
 # simpler parse took the first definition, kept the quotes, and aborted under
 # pipefail when the line was missing). The block runs as written, in isolation.
 BLOCK="$TMP/resolve.sh"
-sed -n '/^MAIN_AGENT_ID="marveen"$/,/^fi$/p' "$B" > "$BLOCK"
+sed -n '/^MAIN_AGENT_ID="nestor"$/,/^fi$/p' "$B" > "$BLOCK"
 # A trailing no-op: the block's last command is `[[ -n "$_mid" ]] && ...`, which is
 # non-zero when the line is missing; in the script that is harmless (a failure inside
 # an && list does not trigger errexit), but `.` would return it. A real abort inside
@@ -103,7 +103,7 @@ mkdir -p "$TMP/envq" "$TMP/envnone"
 printf 'MAIN_AGENT_ID=first\nOTHER=1\nMAIN_AGENT_ID="quoted-main"\n' > "$TMP/envq/.env"
 printf 'OTHER=1\n' > "$TMP/envnone/.env"
 got=$(resolve "$TMP/envq" 2>&1); if [ "$got" = "quoted-main" ]; then pass "the last definition wins and its quotes are stripped"; else fail "resolved '$got', want 'quoted-main'"; fi
-got=$(resolve "$TMP/envnone" 2>&1); rc=$?; if [ "$rc" -eq 0 ] && [ "$got" = "marveen" ]; then pass "no MAIN_AGENT_ID line: default, and no abort under pipefail"; else fail "no MAIN_AGENT_ID line: rc=$rc, resolved '$got'"; fi
+got=$(resolve "$TMP/envnone" 2>&1); rc=$?; if [ "$rc" -eq 0 ] && [ "$got" = "nestor" ]; then pass "no MAIN_AGENT_ID line: default, and no abort under pipefail"; else fail "no MAIN_AGENT_ID line: rc=$rc, resolved '$got'"; fi
 
 echo
 echo "passed: $PASS, failed: $FAIL"

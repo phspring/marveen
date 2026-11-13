@@ -7,7 +7,7 @@ if [ -f "$INSTALL_DIR/.env" ]; then
   SLUG="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL_DIR/.env" | head -1 | cut -d= -f2-)"
   BOT_NAME="$(grep -E '^BOT_NAME=' "$INSTALL_DIR/.env" | head -1 | cut -d= -f2-)"
 fi
-SLUG="${SLUG:-marveen}"
+SLUG="${SLUG:-nestor}"
 # Unit name: SERVICE_ID, else MAIN_AGENT_ID, with a fallback to existing units (see the helper).
 # The tmux session name stays on SLUG.
 # shellcheck source=resolve-unit-id.sh

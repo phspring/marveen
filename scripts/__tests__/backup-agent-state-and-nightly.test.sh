@@ -48,14 +48,14 @@ printf 'm' > "$A/.claude-config/projects/p1/memory/note.md"
 printf 't' > "$A/.claude-config/projects/p1/transcripts/log.jsonl"
 printf 'm' > "$FAKE/.channels-config/projects/p1/memory/note.md"
 printf 't' > "$FAKE/.channels-config/projects/p1/transcripts/log.jsonl"
-# This fleet's units (default prefix: marveen-), a drop-in and an enable link,
+# This fleet's units (default prefix: nestor-), a drop-in and an enable link,
 # next to another application's unit that must stay out.
 SD="$FHOME/.config/systemd/user"
-mkdir -p "$SD/marveen-channels.service.d" "$SD/default.target.wants"
-printf '[Unit]' > "$SD/marveen-channels.service"
-printf '[Unit]' > "$SD/marveen-backup.timer"
-printf '[Service]' > "$SD/marveen-channels.service.d/onfailure.conf"
-ln -s "$SD/marveen-channels.service" "$SD/default.target.wants/marveen-channels.service"
+mkdir -p "$SD/nestor-channels.service.d" "$SD/default.target.wants"
+printf '[Unit]' > "$SD/nestor-channels.service"
+printf '[Unit]' > "$SD/nestor-backup.timer"
+printf '[Service]' > "$SD/nestor-channels.service.d/onfailure.conf"
+ln -s "$SD/nestor-channels.service" "$SD/default.target.wants/nestor-channels.service"
 printf '[Service]\nEnvironment=OTHER_APP_SETTING=1\n' > "$SD/other-app.service"
 ln -s "$SD/other-app.service" "$SD/default.target.wants/other-app.service"
 printf 'SECRET=1' > "$A/.claude/skills/own/.env"
@@ -80,10 +80,10 @@ for p in repo/agents/alpha/agent-config.json \
          repo/agents/alpha/.claude-config/projects/p1/memory/note.md \
          repo/.channels-config/projects/p1/memory/note.md \
          repo/agents/alpha/.claude/skills/own/scripts/run.sh \
-         home/.config/systemd/user/marveen-channels.service \
-         home/.config/systemd/user/marveen-backup.timer \
-         home/.config/systemd/user/marveen-channels.service.d/onfailure.conf \
-         home/.config/systemd/user/default.target.wants/marveen-channels.service; do
+         home/.config/systemd/user/nestor-channels.service \
+         home/.config/systemd/user/nestor-backup.timer \
+         home/.config/systemd/user/nestor-channels.service.d/onfailure.conf \
+         home/.config/systemd/user/default.target.wants/nestor-channels.service; do
   if grep -qx "$p" "$LIST"; then pass "in the archive: $p"; else fail "missing from the archive: $p"; fi
 done
 

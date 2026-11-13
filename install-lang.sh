@@ -425,8 +425,8 @@ _t() {
     hu:migrate.prompt_choose) echo "  Válassz (1/2/3): " ;;
     en:migrate.prompt_path) echo "  Workspace / directory path: " ;;
     hu:migrate.prompt_path) echo "  Workspace / mappa útvonala: " ;;
-    en:migrate.prompt_agent) echo "  Import to which agent? [marveen]: " ;;
-    hu:migrate.prompt_agent) echo "  Melyik ágenshez importáljak? [marveen]: " ;;
+    en:migrate.prompt_agent) echo "  Import to which agent? [nestor]: " ;;
+    hu:migrate.prompt_agent) echo "  Melyik ágenshez importáljak? [nestor]: " ;;
     en:migrate.section_2) echo "[2/4] Scanning source..." ;;
     hu:migrate.section_2) echo "[2/4] Rendszer feltérképezése..." ;;
     en:migrate.found_memory) echo "(cold memory)" ;;

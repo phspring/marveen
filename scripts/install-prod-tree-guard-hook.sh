@@ -198,7 +198,7 @@ ORIGIN="${MARVEEN_DASHBOARD_ORIGIN:-http://localhost:3420}"
 # a hardcoded 'marveen' is rejected as an unknown sender (HTTP 403, measured
 # on a renamed install) and is an unknown recipient too, so the alert never arrived.
 MAIN_ID="$(sed -n 's/^MAIN_AGENT_ID=//p' "$PROD_ROOT/.env" 2>/dev/null | head -1 | tr -d '"' | tr -cd 'A-Za-z0-9_-')"
-MAIN_ID="${MAIN_ID:-marveen}"
+MAIN_ID="${MAIN_ID:-nestor}"
 # THE GUARD SENDS UNDER ITS OWN NAME WHERE THAT NAME IS REGISTERED, and under
 # the install's main agent id (MAIN_ID) where it is not. Measured 2026-09-26
 # against the live dashboard: `from=prod-tree-guard` is answered HTTP 403

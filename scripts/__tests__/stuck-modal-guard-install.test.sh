@@ -39,11 +39,11 @@ EOF
 chmod +x "$TMP/bin/launchctl"
 : > "$TMP/launchctl.calls"
 
-PLIST="$TMP/home/Library/LaunchAgents/com.marveen.stuck-modal-guard.plist"
+PLIST="$TMP/home/Library/LaunchAgents/com.nestor.stuck-modal-guard.plist"
 PATH="$TMP/bin:$PATH" HOME="$TMP/home" bash "$INSTALLER" >/dev/null 2>&1
 assert_eq "the plist is written" "yes" "$([ -f "$PLIST" ] && echo yes || echo no)"
 P="$(cat "$PLIST" 2>/dev/null)"
-assert_contains "label" "$P" "<string>com.marveen.stuck-modal-guard</string>"
+assert_contains "label" "$P" "<string>com.nestor.stuck-modal-guard</string>"
 assert_contains "runs the guard of THIS install" "$P" "<string>$REPO/scripts/stuck-modal-guard.sh</string>"
 assert_contains "every 60 s, like the systemd timer" "$P" "<key>StartInterval</key>
   <integer>60</integer>"

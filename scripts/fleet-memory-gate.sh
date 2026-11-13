@@ -65,7 +65,7 @@ fi
 # a memory-pressure band never throttles the operator's primary bot.
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 _env_val() { [[ -f "$INSTALL_DIR/.env" ]] && grep -E "^$1=" "$INSTALL_DIR/.env" | head -1 | cut -d= -f2- | tr -d '"'"'"'\r'; }
-MAIN_AGENT_ID="$(_env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
+MAIN_AGENT_ID="$(_env_val MAIN_AGENT_ID)"; MAIN_AGENT_ID="${MAIN_AGENT_ID:-nestor}"
 
 WARN_PCT="${MARVEEN_MEM_WARN_PCT:-80}"
 HARD_PCT="${MARVEEN_MEM_HARD_PCT:-90}"

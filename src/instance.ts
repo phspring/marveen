@@ -16,8 +16,11 @@ export const INSTANCE_ENV_KEYS = [
 
 /** The name a NEW instance gets (`nestor init`). Written into its .env, so it is explicit, never a fallback. */
 export const DEFAULT_NEW_INSTANCE_NAME = 'nestor'
-/** What the app falls back to when the .env names nothing: kept as it was, so no existing install is renamed. */
-export const LEGACY_FALLBACK_NAME = 'marveen'
+/**
+ * What the app falls back to when the .env names nothing (src/config.ts MAIN_AGENT_ID). It was "marveen" until
+ * every install named itself (nestor init); since then it is "nestor", the same as a new instance's name.
+ */
+export const APP_FALLBACK_NAME = 'nestor'
 
 export interface InstanceInfo {
   /** The name the service units carry (SERVICE_ID, else MAIN_AGENT_ID): `<unitId>-dashboard`, `<unitId>-channels`. */
@@ -55,7 +58,7 @@ export function describeInstance(root: string, envText: string | null, home: str
   const r = resolve(root)
   const hasMain = ID_RX.test(env.MAIN_AGENT_ID ?? '')
   const hasService = ID_RX.test(env.SERVICE_ID ?? '')
-  const main = hasMain ? env.MAIN_AGENT_ID : LEGACY_FALLBACK_NAME
+  const main = hasMain ? env.MAIN_AGENT_ID : APP_FALLBACK_NAME
   const unitId = hasService ? env.SERVICE_ID : main
   const portRaw = parseInt(env.WEB_PORT ?? '3420', 10)
   const port = Number.isInteger(portRaw) && portRaw > 0 && portRaw < 65536 ? portRaw : 3420
@@ -82,7 +85,7 @@ export function describeInstance(root: string, envText: string | null, home: str
 /** What is wrong with the instance on its own (not between two): settings it leaves to a default. */
 export function selfWarnings(i: InstanceInfo): string[] {
   const w: string[] = []
-  if (!i.explicit.mainAgentId) w.push(`MAIN_AGENT_ID is not set in .env: the main agent is called "${LEGACY_FALLBACK_NAME}" by default. Name it (nestor init, or MAIN_AGENT_ID=...).`)
+  if (!i.explicit.mainAgentId) w.push(`MAIN_AGENT_ID is not set in .env: the main agent is called "${APP_FALLBACK_NAME}" by default. Name it (nestor init, or MAIN_AGENT_ID=...).`)
   if (!i.explicit.serviceId) w.push(`SERVICE_ID is not set in .env: the service units are called ${i.units.dashboard} / ${i.units.channels} after the main agent.`)
   if (!i.explicit.port) w.push(`WEB_PORT is not set in .env: the dashboard uses ${i.port}, which any other install without a port shares.`)
   return w

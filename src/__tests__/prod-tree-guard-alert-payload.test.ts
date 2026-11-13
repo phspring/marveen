@@ -176,7 +176,7 @@ describe('prod-tree-guard post-checkout alert: the sender is this install\'s mai
 
   it('without MAIN_AGENT_ID in .env it falls back to the stock main agent name', async () => {
     const parsed = JSON.parse(await switchTo(makeRepo('stock'), 'feature-ordinary', null))
-    expect(parsed.from).toBe('marveen')
-    expect(parsed.to).toBe('marveen')
+    expect(parsed.from).toBe('nestor')
+    expect(parsed.to).toBe('nestor')
   })
 })

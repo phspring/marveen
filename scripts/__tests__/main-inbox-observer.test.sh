@@ -279,7 +279,7 @@ if [ -f "$SVC" ] && [ -f "$TMR" ]; then pass "the systemd twin ships too (the fi
 if [ -f "$INSTALLER" ]; then
   FAKEHOME="$TMP/home"
   mkdir -p "$FAKEHOME"
-  PLIST_OUT="$FAKEHOME/Library/LaunchAgents/com.marveen.main-inbox-observer.plist"
+  PLIST_OUT="$FAKEHOME/Library/LaunchAgents/com.nestor.main-inbox-observer.plist"
   # The installer refuses to run anywhere but Darwin (it writes a launchd plist,
   # and a plist nothing reads plus a zero exit is worse than a failure). That
   # guard is the right behaviour AND it would make this block untestable on a

@@ -304,14 +304,16 @@ export function brandSlug(raw: string): string {
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^\x00-\x7f]/g, '')
   const slug = ascii.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase()
-  return slug || 'marveen'
+  return slug || 'nestor'
 }
 
 // Canonical identifier for the main agent in the DB, tmux sessions, plist
 // labels, API routing, etc. The installer derives this from BOT_NAME
-// (NFKD + ASCII + lowercase dashes). Older installs without this env var
-// fall back to "marveen" so nothing breaks when upgrading in place.
-export const MAIN_AGENT_ID = env['MAIN_AGENT_ID'] ?? 'marveen'
+// (NFKD + ASCII + lowercase dashes). An install without this env var falls
+// back to "nestor" (it was "marveen" until every install stated its name with
+// `nestor init`; an old unnamed install is renamed by the upgrade, see
+// docs/nestor-peldany.md).
+export const MAIN_AGENT_ID = env['MAIN_AGENT_ID'] ?? 'nestor'
 // The hidden heartbeat worker's agent id. Lives here (not in
 // heartbeat-agent-scaffold) so agent-scaffold can key gates on it without an
 // import cycle: heartbeat-agent-scaffold already imports agent-scaffold.

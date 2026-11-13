@@ -9,7 +9,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'n
 import { join } from 'node:path'
 import { assertEnvEntry } from './env.js'
 import { parseEnvContent } from './env-parse.js'
-import { conflictsWithOthers, DEFAULT_NEW_INSTANCE_NAME, LEGACY_FALLBACK_NAME, nextFreePort, selfWarnings, type Conflict, type InstanceInfo } from './instance.js'
+import { conflictsWithOthers, DEFAULT_NEW_INSTANCE_NAME, APP_FALLBACK_NAME, nextFreePort, selfWarnings, type Conflict, type InstanceInfo } from './instance.js'
 import { describeInstallAt, readRegistry, registerInstance, registryDir, unregisterInstance } from './instance-registry.js'
 
 export function renderInfo(i: InstanceInfo): string {
@@ -72,7 +72,7 @@ function flag(args: string[], name: string): string | undefined {
 
 /**
  * An install that has been running: its database or its isolated Claude config exists. Its names and port are
- * whatever the app has been using, even where the .env says nothing (the app falls back to marveen / 3420).
+ * whatever the app has been using, even where the .env says nothing (the app falls back to nestor / 3420).
  */
 export function isExistingInstall(root: string): boolean {
   return existsSync(join(root, 'store', 'claudeclaw.db')) || existsSync(join(root, '.channels-config'))
@@ -97,7 +97,7 @@ export function initInstance(root: string, args: string[], registered: readonly 
   const text = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : ''
   const have = parseEnvContent(text, ['MAIN_AGENT_ID', 'SERVICE_ID', 'WEB_PORT'])
   // the main agent's name the .env already states is the one the system is named after too (SERVICE_ID falls back to it)
-  const agent = agentArg ?? (existing ? LEGACY_FALLBACK_NAME : DEFAULT_NEW_INSTANCE_NAME)
+  const agent = agentArg ?? (existing ? APP_FALLBACK_NAME : DEFAULT_NEW_INSTANCE_NAME)
   // the main agent name already in force wins over --agent (ignored for a key that is set): the units are named after it
   const system = systemArg ?? have.MAIN_AGENT_ID ?? agent
   if (!idRx.test(agent) || !idRx.test(system)) { err('init: --agent and --system must be letters, digits, dot, dash or underscore (at most 64)'); return 2 }
@@ -118,7 +118,7 @@ export function initInstance(root: string, args: string[], registered: readonly 
   if (kept.length) out(`already set, left as it was: ${kept.join(', ')}`)
   if (existing) {
     // what the app used before this run vs what it uses now: the .env value wins over a flag, so compare the effective ones
-    const before = { agent: have.MAIN_AGENT_ID ?? LEGACY_FALLBACK_NAME, port: have.WEB_PORT ?? '3420' }
+    const before = { agent: have.MAIN_AGENT_ID ?? APP_FALLBACK_NAME, port: have.WEB_PORT ?? '3420' }
     const now = { agent: have.MAIN_AGENT_ID ?? agent, unit: have.SERVICE_ID ?? system, port: have.WEB_PORT ?? port }
     const changes: string[] = []
     if (now.agent !== before.agent) changes.push(`the main agent ${before.agent} -> ${now.agent} (tmux session ${now.agent}-channels)`)

@@ -28,10 +28,10 @@ main_gromzo_sock() {
   fi
 }
 
-# main_gromzo_slug <main_agent_id>: the slug (default marveen, as src/config.ts), or nothing and rc 1 when
+# main_gromzo_slug <main_agent_id>: the slug (default nestor, as src/config.ts), or nothing and rc 1 when
 # it fails mxd's rule (lower-case letters, digits, '-', 1-32).
 main_gromzo_slug() {
-  local s="${1:-marveen}"
+  local s="${1:-nestor}"
   # The class is spelled out, never a-z: macOS /bin/bash 3.2 under a UTF-8 locale lets a range match
   # 'B' and accented letters (measured 2026-11-06), and the launchers run with the owner's locale.
   case "$s" in ''|*[!abcdefghijklmnopqrstuvwxyz0123456789-]*) return 1 ;; esac

@@ -27,6 +27,24 @@ catches a broken watcher.
 """
 import argparse, json, os, shutil, subprocess, sys, tempfile, time, urllib.request
 
+
+def _main_agent_id(root):
+    """MAIN_AGENT_ID from the install's .env (last definition wins, an empty one too, quotes stripped), else
+    src/config.ts's default: like `env['MAIN_AGENT_ID'] ?? 'nestor'`, only a MISSING key falls back."""
+    found = None
+    try:
+        with open(os.path.join(root, ".env"), encoding="utf-8") as fh:
+            for line in fh:
+                k, sep, v = line.strip().partition("=")
+                if sep and k.strip() == "MAIN_AGENT_ID":
+                    v = v.strip()
+                    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                        v = v[1:-1]
+                    found = v
+    except OSError:
+        pass
+    return "nestor" if found is None else found
+
 GB = 1024 ** 3
 CRIT_REPEAT_S = 3600
 RECOVER_MARGIN_GB = 10
@@ -104,7 +122,8 @@ def send(text, root):
     try:
         token = open(os.path.join(root, "store", ".dashboard-token")).read().strip()
         # The main agent's self-notice form (CLAUDE.md, level 1): an unregistered sender id would be refused.
-        body = json.dumps({"from": "marveen", "to": "marveen", "content": "[DISKFREEWATCH1027] " + text}).encode("utf-8")
+        main_id = _main_agent_id(root)
+        body = json.dumps({"from": main_id, "to": main_id, "content": "[DISKFREEWATCH1027] " + text}).encode("utf-8")
         req = urllib.request.Request("http://localhost:3420/api/messages", data=body, method="POST",
                                      headers={"Content-Type": "application/json", "Authorization": "Bearer " + token})
         with urllib.request.urlopen(req, timeout=30) as r:

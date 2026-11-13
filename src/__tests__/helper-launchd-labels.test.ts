@@ -49,11 +49,11 @@ const legacyPlist = (label: string, workdir: string) =>
 
 describe('--print-label: com.<SERVICE_ID>.<name>, from the install .env (all four installers)', () => {
   const cases: Array<[string, string | null, (n: string) => string, boolean]> = [
-    ['no .env value: the default, unchanged', null, (n) => `com.marveen.${n}`, false],
+    ['no .env value: the default, unchanged', null, (n) => `com.nestor.${n}`, false],
     ['SERVICE_ID', 'SERVICE_ID=foo\n', (n) => `com.foo.${n}`, false],
     ['MAIN_AGENT_ID when SERVICE_ID is absent', 'MAIN_AGENT_ID=bar\n', (n) => `com.bar.${n}`, false],
     ['SERVICE_ID wins over MAIN_AGENT_ID, last line wins, quotes stripped', 'MAIN_AGENT_ID=bar\nSERVICE_ID=x\nSERVICE_ID="foo"\n', (n) => `com.foo.${n}`, false],
-    ['an id that is not a label part: the default, and a warning', 'SERVICE_ID=../evil\n', (n) => `com.marveen.${n}`, true],
+    ['an id that is not a label part: the default, and a warning', 'SERVICE_ID=../evil\n', (n) => `com.nestor.${n}`, true],
   ]
   for (const [installer, name] of Object.entries(HELPERS)) {
     for (const [label, env, want, warns] of cases) {

@@ -66,10 +66,10 @@ describe('brandSlug derivation (mirrors the installer NFKD rule)', () => {
     expect(brandSlug('Éxãmple Brand')).toBe('example-brand')
   })
 
-  it('falls back to "marveen" for an empty/blank brand', () => {
-    expect(brandSlug('')).toBe('marveen')
-    expect(brandSlug('   ')).toBe('marveen')
-    expect(brandSlug('!!!')).toBe('marveen')
+  it('falls back to "nestor" (the product default) for an empty/blank brand', () => {
+    expect(brandSlug('')).toBe('nestor')
+    expect(brandSlug('   ')).toBe('nestor')
+    expect(brandSlug('!!!')).toBe('nestor')
   })
 })
 

@@ -30,7 +30,7 @@ function deps(i: GateInputs, after: number | null = 12_000) {
   const d: SessionControlDeps = {
     gather: () => ({ cfg: { ...DEFAULT_GATE_CONFIG }, inputs: i }),
     softClear,
-    session: () => 'marveen-channels',
+    session: () => 'nestor-channels',
     contextTokens: () => after,
   }
   return { d, softClear }
@@ -61,7 +61,7 @@ describe('/context clear (CMD920 test 10)', () => {
     const { d, softClear } = deps(inputs())
     const r = await contextClear(NOW, d)
     expect(r.cleared).toBe(true)
-    expect(softClear).toHaveBeenCalledWith('marveen', 'marveen-channels', NOW, 180_000)
+    expect(softClear).toHaveBeenCalledWith('nestor', 'nestor-channels', NOW, 180_000)
     expect(r.text).toMatch(/előtte: 180k · utána: 12k/)
   })
 

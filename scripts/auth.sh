@@ -66,7 +66,7 @@ fi
 
 # --- 3. Restart services (owner/access config UNTOUCHED) ---
 SLUG="$(grep -E '^MAIN_AGENT_ID=' "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2-)"
-SLUG="${SLUG:-marveen}"
+SLUG="${SLUG:-nestor}"
 echo ""
 echo -e "  Szolgaltatasok ujrainditasa..."
 if [ -x "$INSTALL_DIR/scripts/stop.sh" ] && [ -x "$INSTALL_DIR/scripts/start.sh" ]; then

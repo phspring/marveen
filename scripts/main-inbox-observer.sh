@@ -84,7 +84,7 @@ resolve_main_agent_id() {
   if [ -z "$id" ] && [ -f "$INSTALL_DIR/.env" ]; then
     id="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '\r "')"
   fi
-  [ -n "$id" ] || id="marveen"
+  [ -n "$id" ] || id="nestor"
   case "$id" in
     *[!A-Za-z0-9._-]*) echo "" ;;
     *) echo "$id" ;;

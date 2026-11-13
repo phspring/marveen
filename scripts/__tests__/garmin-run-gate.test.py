@@ -155,8 +155,8 @@ def scenario_sender_is_the_agent_id() -> None:
     way. Measured on the live dashboard 2026-09-25:
       from=garmin-gate -> HTTP 403,  from=<the install's main agent> -> 200
     A readable label reads well and is rejected. And the fallback has to be
-    "marveen", because src/config.ts resolves MAIN_AGENT_ID as
-    `env['MAIN_AGENT_ID'] ?? 'marveen'`: on an install without the key that IS
+    "nestor", because src/config.ts resolves MAIN_AGENT_ID as
+    `env['MAIN_AGENT_ID'] ?? 'nestor'`: on an install without the key that IS
     the registered agent, so anything else we invented would be a 403 too.
 
     Every other scenario replaces notify_main_agent outright, so this is the only
@@ -186,8 +186,8 @@ def scenario_sender_is_the_agent_id() -> None:
             gate.notify_main_agent("333")
         finally:
             gate.MARVEEN_DIR, gate.urllib.request.urlopen = eredeti_env, eredeti_urlopen
-    check("from is the agent id", kuldott.get("from"), "marveen")
-    check("to is the agent id", kuldott.get("to"), "marveen")
+    check("from is the agent id", kuldott.get("from"), "nestor")
+    check("to is the agent id", kuldott.get("to"), "nestor")
     check("not a descriptive label", kuldott.get("from") in {"garmin-gate", "geordi"}, False)
 
 
@@ -204,7 +204,7 @@ def scenario_env_reader_shapes() -> None:
     print("the .env reader is a LINE-FOR-LINE mirror of the product (parity)")
     esetek = [
         # PARITAS-TABLAZAT a termek src/env.ts readEnvFile-javal + a config.ts
-        # `?? 'marveen'` fallbackjaval. Merve 2026-09-27 a LEFORDITOTT dist/env.js
+        # `?? 'nestor'` fallbackjaval. Merve 2026-09-27 a LEFORDITOTT dist/env.js
         # ellen, tizenharom alakon; minden elvart ertek ONNAN jon, nem attol, ami
         # kenyelmes lenne. Az elozo valtozat itt az ENGEDEKENY alakot pinnelte
         # helyesnek, es ezzel ot ponton a termektol ELTERO viselkedest rogzitett.
@@ -212,14 +212,14 @@ def scenario_env_reader_shapes() -> None:
         # a termek kulcsa `export MAIN_AGENT_ID` lesz, tehat a kulcs HIANYZIK ->
         # fallback. Ez a legfontosabb sor: epp ez a felreiranyitas, amiert a
         # BEEGETETT913 keszult.
-        ("export MAIN_AGENT_ID=exportalt\n", "marveen"),
+        ("export MAIN_AGENT_ID=exportalt\n", "nestor"),
         ('MAIN_AGENT_ID="idezett"\n', "idezett"),
         # a sorvegi komment az ERTEK RESZE a termeknel
         ("MAIN_AGENT_ID=kommentes  # ez itt megjegyzes\n", "kommentes  # ez itt megjegyzes"),
         # idezojel csak akkor jon le, ha MINDKET veg az; itt a veg a komment
         ('MAIN_AGENT_ID="ra#cs"  # a kettes a kommentben\n', '"ra#cs"  # a kettes a kommentben'),
-        ("  export   MAIN_AGENT_ID = 'mind'   \n", "marveen"),
-        ("BOT_NAME=Valami\n", "marveen"),
+        ("  export   MAIN_AGENT_ID = 'mind'   \n", "nestor"),
+        ("BOT_NAME=Valami\n", "nestor"),
         # URES ertek: a termek `??`-ja NULLISH-only, tehat az ures sztring ATMEGY
         ("MAIN_AGENT_ID=\n", ""),
         # a termek minden sort feldolgoz es FELULIRJA a kulcsot: az UTOLSO nyer
