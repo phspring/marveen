@@ -128,6 +128,10 @@ class Sender(unittest.TestCase):
         self.assertEqual(dfw._main_agent_id(self._with_env(None)), "nestor")
         self.assertEqual(dfw._main_agent_id(self._with_env("OTHER=x\n")), "nestor")
 
+    def test_an_empty_last_definition_wins_like_the_product(self):
+        # src/env-parse.ts keeps an empty value, and config.ts falls back only on a MISSING key (`??`)
+        self.assertEqual(dfw._main_agent_id(self._with_env("MAIN_AGENT_ID=ada\nMAIN_AGENT_ID=\n")), "")
+
     def test_the_posted_message_uses_it(self):
         sent = {}
 

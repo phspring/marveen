@@ -207,7 +207,7 @@ def flotta_az_agents_konyvtarbol(root, fo_agens='nestor'):
 
 
 def _fo_agens_env_fajlbol(root):
-    """MAIN_AGENT_ID a telepites .env-jebol (utolso definicio nyer, a kulso idezojel lejon), vagy None."""
+    """MAIN_AGENT_ID a telepites .env-jebol (utolso definicio nyer, az ures is; a kulso idezojel lejon), vagy None."""
     talalt = None
     try:
         with open(os.path.join(root, '.env'), encoding='utf-8') as fh:
@@ -217,7 +217,7 @@ def _fo_agens_env_fajlbol(root):
                     v = v.strip()
                     if len(v) >= 2 and v[0] == v[-1] and v[0] in '"\'':
                         v = v[1:-1]
-                    talalt = v or talalt
+                    talalt = v
     except OSError:
         pass
     return talalt
@@ -226,7 +226,8 @@ def _fo_agens_env_fajlbol(root):
 # A fo agens neve: MAIN_AGENT_ID a kornyezetbol, kulonben a telepites .env-jebol, kulonben a src/config.ts alapja
 # ('nestor'). O a koordinator, es a flotta tagja. Korabban beegetett 'marveen' volt: egy atnevezett telepitesen a
 # koordinatornak szant uzenet egy nem letezo agenshez ment.
-_FO_AGENS = os.environ.get('MAIN_AGENT_ID') or _fo_agens_env_fajlbol(ROOT) or 'nestor'
+_FO_AGENS_ENV = _fo_agens_env_fajlbol(ROOT)
+_FO_AGENS = os.environ.get('MAIN_AGENT_ID') or ('nestor' if _FO_AGENS_ENV is None else _FO_AGENS_ENV)
 FLEET = _FLEET_KEZI | {_FO_AGENS} | flotta_az_agents_konyvtarbol(ROOT, _FO_AGENS)
 COORDINATOR = _FO_AGENS
 GAZDA = 'szabolcs'

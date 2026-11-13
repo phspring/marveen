@@ -29,7 +29,8 @@ import argparse, json, os, shutil, subprocess, sys, tempfile, time, urllib.reque
 
 
 def _main_agent_id(root):
-    """MAIN_AGENT_ID from the install's .env (last definition wins, quotes stripped), else src/config.ts's default."""
+    """MAIN_AGENT_ID from the install's .env (last definition wins, an empty one too, quotes stripped), else
+    src/config.ts's default: like `env['MAIN_AGENT_ID'] ?? 'nestor'`, only a MISSING key falls back."""
     found = None
     try:
         with open(os.path.join(root, ".env"), encoding="utf-8") as fh:
@@ -39,10 +40,10 @@ def _main_agent_id(root):
                     v = v.strip()
                     if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
                         v = v[1:-1]
-                    found = v or found
+                    found = v
     except OSError:
         pass
-    return found or "nestor"
+    return "nestor" if found is None else found
 
 GB = 1024 ** 3
 CRIT_REPEAT_S = 3600
