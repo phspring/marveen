@@ -226,7 +226,7 @@ describe('names: nestor for a new instance, configurable per instance', () => {
       const env = readFileSync(join(root, '.env'), 'utf-8')
       expect(env).toContain('# mine\nTELEGRAM_BOT_TOKEN=keep:me\nMAIN_AGENT_ID=ada\n')
       expect(env).not.toContain('MAIN_AGENT_ID=zed')
-      expect(env).toContain('SERVICE_ID=zed')
+      expect(env).toContain('SERVICE_ID=ada') // named after the main agent in force, not after the ignored --agent
       expect(r.out).toMatch(/already set, left as it was: MAIN_AGENT_ID=ada/)
     })
 
@@ -249,7 +249,7 @@ describe('names: nestor for a new instance, configurable per instance', () => {
         expect(env).toContain('SERVICE_ID=marveen')
         expect(env).toContain('WEB_PORT=3420') // it is on 3420 already; doctor, not init, says another instance shares it
         expect(env).not.toContain('nestor')
-        expect(r.out).toMatch(/keeps its current names \(marveen\): nothing is renamed/)
+        expect(r.out).toMatch(/nothing is renamed or moved: main agent marveen, units marveen-\*, port 3420/)
       })
 
       it('the pinned names are the ones the app was already using', () => {
@@ -272,6 +272,44 @@ describe('names: nestor for a new instance, configurable per instance', () => {
         const r = run(['init', root, '--agent', 'nestor'])
         expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=nestor')
         expect(r.out).toMatch(/WARNING: .*RENAME/)
+      })
+
+      it('--agent with the system name kept is a rename of the main agent only, and says so', () => {
+        markRunning()
+        const r = run(['init', root, '--agent', 'ada', '--system', 'marveen'])
+        const env = readFileSync(join(root, '.env'), 'utf-8')
+        expect(env).toContain('MAIN_AGENT_ID=ada')
+        expect(env).toContain('SERVICE_ID=marveen')
+        expect(r.out).toMatch(/WARNING: .*main agent marveen -> ada \(tmux session ada-channels\)/)
+        expect(r.out).not.toMatch(/service units/)
+      })
+
+      it('--system alone on a running install is a rename of the units, and says so', () => {
+        markRunning()
+        const r = run(['init', root, '--system', 'studio'])
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('SERVICE_ID=studio')
+        expect(r.out).toMatch(/WARNING: .*service units marveen-\* -> studio-\*/)
+        expect(r.out).not.toMatch(/nothing is renamed or moved/)
+      })
+
+      it('--port alone on a running install is a move, and says so', () => {
+        markRunning()
+        const r = run(['init', root, '--port', '4000'])
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('WEB_PORT=4000')
+        expect(r.out).toMatch(/WARNING: .*port 3420 -> 4000/)
+      })
+
+      it('a .env that names the main agent but not the system pins the system to that name, not to marveen', () => {
+        markRunning()
+        writeFileSync(join(root, '.env'), 'MAIN_AGENT_ID=foo\n')
+        const before = describeInstance(root, 'MAIN_AGENT_ID=foo\n', '/home/u')
+        const r = run(['init', root])
+        const env = readFileSync(join(root, '.env'), 'utf-8')
+        expect(env).toContain('SERVICE_ID=foo')
+        expect(env).not.toContain('marveen')
+        expect(describeInstance(root, env, '/home/u').units).toEqual(before.units)
+        expect(r.out).toMatch(/nothing is renamed or moved: main agent foo/)
+        expect(r.out).not.toMatch(/WARNING/)
       })
 
       it('a key that is already set is neither pinned over nor called a rename', () => {

@@ -93,14 +93,16 @@ export function initInstance(root: string, args: string[], registered: readonly 
   const agentArg = flag(args, '--agent')
   const systemArg = flag(args, '--system')
   const portArg = flag(args, '--port')
-  const agent = agentArg ?? (existing ? LEGACY_FALLBACK_NAME : DEFAULT_NEW_INSTANCE_NAME)
-  const system = systemArg ?? agent
-  if (!idRx.test(agent) || !idRx.test(system)) { err('init: --agent and --system must be letters, digits, dot, dash or underscore (at most 64)'); return 2 }
-  if (portArg !== undefined && !(/^\d{1,5}$/.test(portArg) && +portArg > 0 && +portArg < 65536)) { err('init: --port must be a number from 1 to 65535'); return 2 }
-
   const envPath = join(root, '.env')
   const text = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : ''
   const have = parseEnvContent(text, ['MAIN_AGENT_ID', 'SERVICE_ID', 'WEB_PORT'])
+  // the main agent's name the .env already states is the one the system is named after too (SERVICE_ID falls back to it)
+  const agent = agentArg ?? (existing ? LEGACY_FALLBACK_NAME : DEFAULT_NEW_INSTANCE_NAME)
+  // the main agent name already in force wins over --agent (ignored for a key that is set): the units are named after it
+  const system = systemArg ?? have.MAIN_AGENT_ID ?? agent
+  if (!idRx.test(agent) || !idRx.test(system)) { err('init: --agent and --system must be letters, digits, dot, dash or underscore (at most 64)'); return 2 }
+  if (portArg !== undefined && !(/^\d{1,5}$/.test(portArg) && +portArg > 0 && +portArg < 65536)) { err('init: --port must be a number from 1 to 65535'); return 2 }
+
   // an existing install is already on a port, the default one unless its .env says otherwise
   const port = portArg ?? (existing ? '3420' : String(nextFreePort(registered.map((i) => i.port))))
   const wanted: Array<[string, string]> = [['MAIN_AGENT_ID', agent], ['SERVICE_ID', system], ['WEB_PORT', port]]
@@ -114,10 +116,16 @@ export function initInstance(root: string, args: string[], registered: readonly 
   out(`wrote to ${envPath}: ${added.map(([k, v]) => `${k}=${v}`).join(', ')}`)
   const kept = wanted.filter(([k]) => k in have).map(([k]) => `${k}=${have[k]}`)
   if (kept.length) out(`already set, left as it was: ${kept.join(', ')}`)
-  if (existing && agentArg === undefined) {
-    out(`this install has been running, so it keeps its current names (${LEGACY_FALLBACK_NAME}): nothing is renamed. To rename it, pass --agent and --system (that changes the tmux session and the unit names: stop its services first).`)
-  } else if (existing && agent !== LEGACY_FALLBACK_NAME && !('MAIN_AGENT_ID' in have)) {
-    out(`WARNING: this install has been running under the name ${LEGACY_FALLBACK_NAME}; ${agent} is a RENAME (new tmux session and unit names). Stop its services first and re-install them.`)
+  if (existing) {
+    // what the app used before this run vs what it uses now: the .env value wins over a flag, so compare the effective ones
+    const before = { agent: have.MAIN_AGENT_ID ?? LEGACY_FALLBACK_NAME, port: have.WEB_PORT ?? '3420' }
+    const now = { agent: have.MAIN_AGENT_ID ?? agent, unit: have.SERVICE_ID ?? system, port: have.WEB_PORT ?? port }
+    const changes: string[] = []
+    if (now.agent !== before.agent) changes.push(`the main agent ${before.agent} -> ${now.agent} (tmux session ${now.agent}-channels)`)
+    if (now.unit !== (have.SERVICE_ID ?? before.agent)) changes.push(`the service units ${have.SERVICE_ID ?? before.agent}-* -> ${now.unit}-*`)
+    if (now.port !== before.port) changes.push(`the port ${before.port} -> ${now.port}`)
+    if (changes.length) out(`WARNING: this install has been running; this is a RENAME / MOVE: ${changes.join('; ')}. Stop its services first and re-install them.`)
+    else out(`this install has been running, and nothing is renamed or moved: main agent ${now.agent}, units ${now.unit}-*, port ${now.port}.`)
   }
   out('next: nestor register, then nestor doctor')
   return 0
