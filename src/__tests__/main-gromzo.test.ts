@@ -245,7 +245,7 @@ describe('the shell launcher helpers and their TS twin', () => {
 
   it('a usable socket and a good slug keep the id and export the slug', () => {
     expect(filterMainGromzoIds('', [SLACK, GZ], sock)).toEqual([SLACK, GZ])
-    expect(mainGromzoEnv('', [GZ])).toBe('export MXD_AGENT="marveen" && export MXD_SCOPE="both" && ')
+    expect(mainGromzoEnv('', [GZ])).toBe('export MXD_AGENT="nestor" && export MXD_SCOPE="both" && ')
   })
 
   it('no socket, or a bad slug, drops only the gromzo id', () => {

@@ -13,7 +13,7 @@ fi
 
 TOKEN=$(grep '^TELEGRAM_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
 MAIN_AGENT_ID=$(grep '^MAIN_AGENT_ID=' "$ENV_FILE" | head -1 | cut -d= -f2-)
-MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
+MAIN_AGENT_ID="${MAIN_AGENT_ID:-nestor}"
 
 # A missing Telegram token or owner chat is NOT fatal here any more: on a
 # Slack-only install (no TELEGRAM_BOT_TOKEN) the Slack branch below is the

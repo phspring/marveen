@@ -25,17 +25,21 @@ nestor init --agent ada --system studio --port 4000   # a fő ügynök ada, a re
 
 A `nestor init` **soha nem ír át egy már beállított kulcsot**, és a `.env` többi sorát (tokeneket) érintetlenül hagyja.
 
-**Egy már futott telepítésen** (van `store/claudeclaw.db` vagy `.channels-config`) a `nestor init` **a mostani nevét rögzíti**: `MAIN_AGENT_ID=marveen`,
-`SERVICE_ID=marveen`, `WEB_PORT=3420`, vagyis kiírja, amit az alkalmazás eddig is használt. **Nem nevezi át és nem költözteti el.** Átnevezés csak akkor történik, ha
-kéred (`--agent`, `--system`), és a parancs ezt figyelmeztetéssel ki is mondja, mert az új tmux-munkamenetet és új unit-neveket jelent.
+**Egy már futott telepítésen** (van `store/claudeclaw.db` vagy `.channels-config`) a `nestor init` **azt rögzíti, amit az alkalmazás most használ**:
+a `.env`-ben már megadott nevet, különben az alapnevet (`nestor`), és a `WEB_PORT`-ot, különben a 3420-at. Ha egy kapcsoló (`--agent`, `--system`, `--port`)
+ettől eltérő nevet vagy portot ír be, a parancs figyelmeztetéssel kimondja, hogy ez átnevezés vagy költöztetés (új tmux-munkamenet, új unit-nevek).
 
-### A `marveen` alapérték átírása `nestor`-ra: két lépésben
+### A kódbeli alapnév: `marveen` helyett `nestor` (két lépésben, kész)
 
-A kódbeli `marveen` alapérték ma **harminc szkriptben** (`start.sh`, `stop.sh`, `channels.sh`, `watchdog.sh`, `notify.sh`, …), az `src/config.ts`-ben és több száz tesztben él.
-Egyetlen lépésben átírni nem biztonságos: ha akár egy szkript lemarad, ugyanarra a telepítésre két nevet mondana (például a `start.sh` a `nestor-dashboard` unitot keresné, és egy második dashboardot indítana a `marveen` mellé).
+1. **Rögzítés:** minden meglévő telepítés a `.env`-jében kimondja a nevét (`nestor init`), így az alapérték nem számít neki.
+2. **Átírás:** az alapnév az `src/config.ts`-ben, a szkriptekben (`${MAIN_AGENT_ID:-nestor}`), a Python-hookokban és a tesztekben egyszerre lett `nestor`.
 
-1. **Rögzítés (kész):** minden meglévő telepítésen futtasd egyszer a `nestor init`-et. Ettől a `.env` kimondja a nevet, és az alapérték többé nem számít neki.
-2. **Átírás (még hátra):** csak ha minden meglévő telepítés rögzítve van, írjuk át az alapértéket az összes szkriptben, az `src/config.ts`-ben és a tesztekben egy PR-ban, és a `nestor doctor` ellenőrzi, hogy nincs-e még nevet nem adó telepítés.
+**Ami szándékosan `marveen` maradt:** a régi adat-azonosító (az adatbázis-oszlopok `DEFAULT 'marveen'`-je, a `migrate-main-agent-id.sh`, amely
+a `marveen` sorokról migrál), a `~/.marveen-worker` útvonal egy `marveen` nevű telepítésnek, és a `MARVEEN_*` környezeti változók neve.
+
+**Egy `.env`-ben névvel nem rendelkező régi telepítés frissítéskor átneveződik** `nestor`-ra (új tmux-munkamenet, új unit-nevek). Előtte futtasd rajta a
+`nestor init`-et, vagy írd be a `.env`-be a régi nevét (`MAIN_AGENT_ID=marveen`). Egy átnevezett telepítés adatbázis-sorai (emlékek, kártyák) a régi
+azonosítón maradnak: ezeket a `migrate-main-agent-id.sh` írja át.
 
 ---
 
@@ -61,7 +65,7 @@ Két telepítés egymás mellett: mindkettőnek saját `nestor`-ja van, és egyi
 
 ### Amit a `nestor` szándékosan visszautasít
 
-- **Más telepítés unitját.** Egy unit csak akkor a miénk, ha a `WorkingDirectory`-ja ez a telepítés. Egy `.env` nélküli telepítés alapneve `marveen`,
+- **Más telepítés unitját.** Egy unit csak akkor a miénk, ha a `WorkingDirectory`-ja ez a telepítés. Egy `.env` nélküli telepítés alapneve `nestor`,
   vagyis ugyanaz, mint egy másiké: a `nestor start` ilyenkor **nem indítja a másik unitját**, hanem megmondja, kié, és hogy mit kell tenni (`SERVICE_ID` a saját `.env`-ben).
 - **Más telepítés unit-fájlját** felülírni: az `install-service --force` sem írja át, ha a fájl `WorkingDirectory`-ja más.
 - **Egy pid-fájlban szereplő idegen folyamatot** leállítani: csak az a folyamat a miénk, amelynek a munkakönyvtára ez a telepítés **és** `dist/index.js`-t futtat.
@@ -92,4 +96,3 @@ a `<név>-channels` munkamenet is ugyanaz. Ezt a `doctor` pontosan megmutatja.
 2. **Egységes port a szkriptekben és hookokban:** kb. 20 szkript és hook (`agent-msg.sh`, `agent-inbox.sh`, a Python hookok, `watchdog.sh`…) fixen `localhost:3420`-at hív. Egy második példány szkriptjei így a **másik példányt** érik el.
 3. **Teljesen saját Claude-config** minden ágensnek, a `~/.claude`-hoz symlink nélkül.
 4. **A `channels` unit** generálása (`install-service`) a `channels.sh` mintájára.
-5. **A kódbeli alapnév átírása** `nestor`-ra (lásd a két lépést fent): előbb minden meglévő telepítésen `nestor init`.

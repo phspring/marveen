@@ -11,7 +11,7 @@ load_env_file "$INSTALL_DIR/.env"
 
 API="http://localhost:${WEB_PORT:-3420}/api"
 
-AGENT_ID="${1:-marveen}"
+AGENT_ID="${1:-${MAIN_AGENT_ID:-nestor}}"
 CONTENT="$2"
 
 if [ -z "$CONTENT" ]; then

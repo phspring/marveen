@@ -86,7 +86,7 @@ describe('PAIRAPPROVE1: the wizard resolves the real agent id before asking', ()
   })
 
   it('leaves the mainAgentId fallback alone (other call sites depend on it)', () => {
-    expect(APP).toMatch(/return window\._marveen\?\.agentId \|\| 'marveen'/)
+    expect(APP).toMatch(/return window\._marveen\?\.agentId \|\| 'nestor'/)
   })
 
   it('keeps the expiry filter, which is correct (the plugin writes ms)', () => {

@@ -2129,7 +2129,7 @@ _unit_drift() {
     | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/')"
   local main_id
   main_id="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
-  main_id="${main_id:-marveen}"
+  main_id="${main_id:-nestor}"
   slug="${slug:-$main_id}"
   # Same fallback as scripts/resolve-unit-id.sh: no unit under SERVICE_ID but one
   # under MAIN_AGENT_ID -> check the one that exists.

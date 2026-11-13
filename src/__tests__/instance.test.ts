@@ -16,10 +16,10 @@ describe('describeInstance', () => {
   it('without a .env every default applies', () => {
     const i = inst('/srv/a', null)
     expect(i).toMatchObject({
-      unitId: 'marveen', mainAgentId: 'marveen', channelsSession: 'marveen-channels', port: 3420, host: '127.0.0.1',
+      unitId: 'nestor', mainAgentId: 'nestor', channelsSession: 'nestor-channels', port: 3420, host: '127.0.0.1',
       tmuxServer: 'default', ownClaudeConfig: false, claudeConfig: '/home/u/.claude', node: null,
     })
-    expect(i.units).toEqual({ dashboard: 'marveen-dashboard', channels: 'marveen-channels' })
+    expect(i.units).toEqual({ dashboard: 'nestor-dashboard', channels: 'nestor-channels' })
     expect(i.tokenPath).toBe('/srv/a/store/.claude-oauth-token')
     expect(i.dbPath).toBe('/srv/a/store/claudeclaw.db')
   })
@@ -40,7 +40,7 @@ describe('describeInstance', () => {
   it('a bad port or id falls back to the default instead of being used', () => {
     expect(inst('/srv/d', 'WEB_PORT=99999').port).toBe(3420)
     expect(inst('/srv/d', 'WEB_PORT=abc').port).toBe(3420)
-    expect(inst('/srv/d', 'MAIN_AGENT_ID=bad id; rm -rf').mainAgentId).toBe('marveen')
+    expect(inst('/srv/d', 'MAIN_AGENT_ID=bad id; rm -rf').mainAgentId).toBe('nestor')
   })
 
   it('reads only its own keys: a secret in the .env is not in the description', () => {
@@ -239,17 +239,17 @@ describe('names: nestor for a new instance, configurable per instance', () => {
     describe('an install that has been running keeps what it uses today', () => {
       const markRunning = () => { mkdirSync(join(root, 'store')); writeFileSync(join(root, 'store', 'claudeclaw.db'), '') }
 
-      it('is pinned to marveen and the default port, not renamed to nestor and not moved to another port', () => {
+      it('is pinned to the name and port the app uses today (nestor, 3420), not moved to another port', () => {
         markRunning()
         const other = join(base, 'other'); mkdirSync(other); writeFileSync(join(other, '.env'), 'WEB_PORT=3420\n')
         run(['register', other])
         const r = run(['init', root])
         const env = readFileSync(join(root, '.env'), 'utf-8')
-        expect(env).toContain('MAIN_AGENT_ID=marveen')
-        expect(env).toContain('SERVICE_ID=marveen')
+        expect(env).toContain('MAIN_AGENT_ID=nestor')
+        expect(env).toContain('SERVICE_ID=nestor')
         expect(env).toContain('WEB_PORT=3420') // it is on 3420 already; doctor, not init, says another instance shares it
-        expect(env).not.toContain('nestor')
-        expect(r.out).toMatch(/nothing is renamed or moved: main agent marveen, units marveen-\*, port 3420/)
+        expect(env).not.toContain('WEB_PORT=3421')
+        expect(r.out).toMatch(/nothing is renamed or moved: main agent nestor, units nestor-\*, port 3420/)
       })
 
       it('the pinned names are the ones the app was already using', () => {
@@ -264,23 +264,24 @@ describe('names: nestor for a new instance, configurable per instance', () => {
       it('an install with only its isolated Claude config counts as running too', () => {
         mkdirSync(join(root, '.channels-config'))
         run(['init', root])
-        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=marveen')
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=nestor')
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('WEB_PORT=3420') // not the next free port of a new one
       })
 
       it('a rename is possible only when asked for, and says it is one', () => {
         markRunning()
-        const r = run(['init', root, '--agent', 'nestor'])
-        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=nestor')
+        const r = run(['init', root, '--agent', 'ada'])
+        expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('MAIN_AGENT_ID=ada')
         expect(r.out).toMatch(/WARNING: .*RENAME/)
       })
 
       it('--agent with the system name kept is a rename of the main agent only, and says so', () => {
         markRunning()
-        const r = run(['init', root, '--agent', 'ada', '--system', 'marveen'])
+        const r = run(['init', root, '--agent', 'ada', '--system', 'nestor'])
         const env = readFileSync(join(root, '.env'), 'utf-8')
         expect(env).toContain('MAIN_AGENT_ID=ada')
-        expect(env).toContain('SERVICE_ID=marveen')
-        expect(r.out).toMatch(/WARNING: .*main agent marveen -> ada \(tmux session ada-channels\)/)
+        expect(env).toContain('SERVICE_ID=nestor')
+        expect(r.out).toMatch(/WARNING: .*main agent nestor -> ada \(tmux session ada-channels\)/)
         expect(r.out).not.toMatch(/service units/)
       })
 
@@ -288,7 +289,7 @@ describe('names: nestor for a new instance, configurable per instance', () => {
         markRunning()
         const r = run(['init', root, '--system', 'studio'])
         expect(readFileSync(join(root, '.env'), 'utf-8')).toContain('SERVICE_ID=studio')
-        expect(r.out).toMatch(/WARNING: .*service units marveen-\* -> studio-\*/)
+        expect(r.out).toMatch(/WARNING: .*service units nestor-\* -> studio-\*/)
         expect(r.out).not.toMatch(/nothing is renamed or moved/)
       })
 
@@ -299,14 +300,14 @@ describe('names: nestor for a new instance, configurable per instance', () => {
         expect(r.out).toMatch(/WARNING: .*port 3420 -> 4000/)
       })
 
-      it('a .env that names the main agent but not the system pins the system to that name, not to marveen', () => {
+      it('a .env that names the main agent but not the system pins the system to that name, not to the default', () => {
         markRunning()
         writeFileSync(join(root, '.env'), 'MAIN_AGENT_ID=foo\n')
         const before = describeInstance(root, 'MAIN_AGENT_ID=foo\n', '/home/u')
         const r = run(['init', root])
         const env = readFileSync(join(root, '.env'), 'utf-8')
         expect(env).toContain('SERVICE_ID=foo')
-        expect(env).not.toContain('marveen')
+        expect(env).not.toContain('SERVICE_ID=nestor')
         expect(describeInstance(root, env, '/home/u').units).toEqual(before.units)
         expect(r.out).toMatch(/nothing is renamed or moved: main agent foo/)
         expect(r.out).not.toMatch(/WARNING/)

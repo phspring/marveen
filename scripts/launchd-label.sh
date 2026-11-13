@@ -35,10 +35,10 @@ helper_launchd_label() {
   # the installer itself produces is accepted. Anything else falls back to the
   # default, and says so -- a silent fallback would hide a second collision.
   case "$_hll_id" in
-    '') _hll_id="marveen" ;;
+    '') _hll_id="nestor" ;;
     *[!A-Za-z0-9_-]*|-*)
-      echo "WARN: SERVICE_ID '$_hll_id' is not a valid label part; using 'marveen'" >&2
-      _hll_id="marveen" ;;
+      echo "WARN: SERVICE_ID '$_hll_id' is not a valid label part; using 'nestor'" >&2
+      _hll_id="nestor" ;;
   esac
   printf 'com.%s.%s' "$_hll_id" "$2"
 }

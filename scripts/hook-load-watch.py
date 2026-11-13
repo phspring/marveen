@@ -927,7 +927,7 @@ def send(content):
         print("ALERT_DRYRUN: " + content, flush=True)
         return True
     env = read_env_keys(("MAIN_AGENT_ID", "SYSTEM_SENDER_IDS", "WEB_PORT"))
-    main_id = env.get("MAIN_AGENT_ID") or "marveen"
+    main_id = env.get("MAIN_AGENT_ID") or "nestor"
     listed = {re.sub(r"[^A-Za-z0-9_-]", "", e) for e in env.get("SYSTEM_SENDER_IDS", "").split(",")}
     sender = os.environ.get("HOOK_LOAD_WATCH_FROM") or (SENDER_ID if SENDER_ID in listed else main_id)
     to = os.environ.get("HOOK_LOAD_WATCH_TO") or main_id

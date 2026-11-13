@@ -21,7 +21,7 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
   // name, {agentId} = canonical slug) are filled from /api/marveen once it
   // resolves (see initSidebarBrand). Until then these defaults keep a stock
   // install byte-identical. Explicit params passed to t() still win over them.
-  window._brandTokens = window._brandTokens || { brand: 'Marveen', bot: 'Marveen', agentId: 'marveen' }
+  window._brandTokens = window._brandTokens || { brand: 'Marveen', bot: 'Marveen', agentId: 'nestor' }
 
   window.t = function t(key, params = {}) {
     const lang = window._lang || 'hu'
@@ -96,10 +96,10 @@ function avatarBust() { return _avatarEpoch ? `?t=${_avatarEpoch}` : '' }
 // The main (channels) agent's real id. The backend /api/marveen route returns
 // the configured MAIN_AGENT_ID (NOT the literal "marveen") in window._marveen;
 // use this everywhere an agent id is sent to /api/agents/... or compared to a
-// fleet name, so the dashboard works on non-"marveen" installs. Falls back to
-// "marveen" only before /api/marveen has resolved (or on a legacy backend).
+// fleet name, so the dashboard works on any install. Falls back to the product
+// default "nestor" only before /api/marveen has resolved (or on a legacy backend).
 function mainAgentId() {
-  return window._marveen?.agentId || 'marveen'
+  return window._marveen?.agentId || 'nestor'
 }
 
 (() => {
@@ -6001,7 +6001,7 @@ document.getElementById('analyzeAllModelsBtn').addEventListener('click', async (
               body: JSON.stringify({
                 title: t('agents.model.card_title', { agent: r.agent }),
                 description: t('agents.model.card_desc', { current: r.currentModel, suggested: r.suggestedModel, reason: r.reason }),
-                assignee: 'marveen',
+                assignee: mainAgentId(),
                 priority: 'normal',
                 status: 'planned',
               }),
@@ -15303,7 +15303,7 @@ async function initSidebarBrand() {
       window._brandTokens = {
         brand: brand || 'Marveen',
         bot: m.name || brand || 'Marveen',
-        agentId: m.agentId || 'marveen',
+        agentId: m.agentId || 'nestor',
       }
       if (typeof renderStaticI18n === 'function') renderStaticI18n()
       if (brand) {

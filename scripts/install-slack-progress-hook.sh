@@ -82,7 +82,7 @@ read_env() {
 SERVICE_ID="$(read_env SERVICE_ID)"
 MAIN_AGENT_ID_ENV="$(read_env MAIN_AGENT_ID)"
 BOT_NAME="$(read_env BOT_NAME)"
-SERVICE_ID="${SERVICE_ID:-${MAIN_AGENT_ID_ENV:-marveen}}"
+SERVICE_ID="${SERVICE_ID:-${MAIN_AGENT_ID_ENV:-nestor}}"
 BOT_NAME="${BOT_NAME:-Marveen}"
 
 # Run the retire script for one provider and SAY SO when it fails; returns the

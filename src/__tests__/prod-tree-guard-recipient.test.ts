@@ -252,7 +252,7 @@ describe('prod-tree-guard post-checkout alert: the SENDER is read from SYSTEM_SE
 
   it('a registered sender with no MAIN_AGENT_ID still goes out, to the stock recipient the develop logic falls back to', async () => {
     // The recipient half is develop's (#1569, pinned by #1633): no MAIN_AGENT_ID
-    // means the stock 'marveen'. This case pins that the SENDER feature does not
+    // means the stock 'nestor'. This case pins that the SENDER feature does not
     // disturb it -- the guard sends under its own name, and the recipient is
     // still resolved from MAIN_AGENT_ID and never from the sender.
     const repo = makeRepo('SYSTEM_SENDER_IDS=prod-tree-guard\n')
@@ -261,7 +261,7 @@ describe('prod-tree-guard post-checkout alert: the SENDER is read from SYSTEM_SE
     expect(bodies.length).toBe(1)
     const p = JSON.parse(bodies[0])
     expect(p.from).toBe('prod-tree-guard')
-    expect(p.to).toBe('marveen')
+    expect(p.to).toBe('nestor')
   })
 
   // THE HOOK AND THE SERVER MUST READ THE LIST THE SAME WAY (Sam, 2026-09-30). The

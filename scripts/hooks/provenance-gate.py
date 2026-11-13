@@ -355,7 +355,7 @@ def derive_agent_id(cwd):
     if not here:
         return None
     if here == install:
-        return _env_setting("MAIN_AGENT_ID", "marveen")
+        return _env_setting("MAIN_AGENT_ID", "nestor")
     agents = os.path.join(install, "agents") + os.sep
     if here.startswith(agents):
         name = here[len(agents):].split(os.sep, 1)[0]
@@ -608,7 +608,7 @@ def _fleet_lead():
     lead = _env_setting("FLEET_LEAD_ID", "")
     if lead:
         return lead
-    return _env_setting("MAIN_AGENT_ID", "marveen")
+    return _env_setting("MAIN_AGENT_ID", "nestor")
 
 # Always the install's own rules file (ENVRELAXGATE1104 step 2; since #2492 a
 # sub-agent cannot write it). An environment path would let the checked agent

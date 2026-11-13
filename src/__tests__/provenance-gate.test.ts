@@ -511,8 +511,8 @@ describe('provenance-gate: system directive row verification (CTXBORITEK919)', (
   })
 
   it('the install root itself resolves to the main agent id', () => {
-    const db = makeDb([[49, 'system', 'marveen', BODY, 'delivered']])
-    // MAIN_AGENT_ID unset in this env -> shipped default 'marveen'
+    const db = makeDb([[49, 'system', 'nestor', BODY, 'delivered']])
+    // MAIN_AGENT_ID unset in this env -> shipped default 'nestor'
     expect(runDirective(`${HEADER(49)}\n${BODY}`, INSTALL, db).out.trim()).toBe('')
   })
 

@@ -37,7 +37,7 @@ resolve() { # resolve <env-file-content> -> prints UNIT_ID (stderr dropped)
   printf '%b' "$1" > "$INSTALL/.env"
   ( export PATH="$BIN:$PATH"
     INSTALL_DIR="$INSTALL"; SLUG="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL/.env" | head -1 | cut -d= -f2-)"
-    SLUG="${SLUG:-marveen}"
+    SLUG="${SLUG:-nestor}"
     # shellcheck source=../resolve-unit-id.sh
     source "$HELPER" 2>/dev/null
     echo "$UNIT_ID" )

@@ -163,10 +163,10 @@ def main_agent_id() -> str:
     failure -- the dashboard rejects the POST with 403 and the gate's alert is
     lost, or worse, it is accepted into a mailbox nobody reads.
 
-    The fallback is "marveen" ON PURPOSE, and it is not the old defect coming
+    The fallback is "nestor" ON PURPOSE, and it is not the old defect coming
     back: src/config.ts resolves MAIN_AGENT_ID exactly this way
-    (`env['MAIN_AGENT_ID'] ?? 'marveen'`) so that an older install upgrading in
-    place keeps working. On such an install "marveen" IS the registered main
+    (`env['MAIN_AGENT_ID'] ?? 'nestor'`) so that an older install upgrading in
+    place keeps working. On such an install "nestor" IS the registered main
     agent, so the POST is accepted. The defect was never "there is a default" --
     it was a name written into this script that had nothing to do with the
     install it runs on. Resolving it the same way the product does is the fix.
@@ -218,7 +218,7 @@ def main_agent_id() -> str:
             talalt = ertek
     except OSError:
         pass
-    return "marveen" if talalt is None else talalt
+    return "nestor" if talalt is None else talalt
 # Resolved once at import: AGENT is not only the message recipient, it is
 # also the SQL filter in the activity queries below. A None here does not
 # fail -- it silently matches no rows, so the gate would report "no

@@ -11,7 +11,7 @@ set -u
 INSTALL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 MAIN_AGENT_ID="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
-MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
+MAIN_AGENT_ID="${MAIN_AGENT_ID:-nestor}"
 # N2: sanitize — strip any character that is not alphanumeric, underscore, or hyphen.
 MAIN_AGENT_ID="${MAIN_AGENT_ID//[^a-zA-Z0-9_-]/}"
 SESSION="${MAIN_AGENT_ID}-channels"

@@ -18,7 +18,7 @@ MAIN_AGENT_ID="$(grep -E '^MAIN_AGENT_ID=' .env 2>/dev/null | head -1 | cut -d= 
 # and it is run precisely when something is already wrong.
 WEB_PORT="${WEB_PORT:-$(grep -E '^WEB_PORT=' "$(dirname "$0")/../.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' "')}"
 WEB_PORT="${WEB_PORT:-3420}"
-MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
+MAIN_AGENT_ID="${MAIN_AGENT_ID:-nestor}"
 # Active channel provider (telegram default) -- the progress-watchdog section
 # below compares the live hook/timer plumbing against it.
 CHANNEL_PROVIDER="$(grep -E '^CHANNEL_PROVIDER=' .env 2>/dev/null | head -1 | cut -d= -f2- | tr -d ' "')"

@@ -60,15 +60,15 @@ const sleepMs = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 describe('units of another install are never touched', () => {
   it('an install that names nothing falls back to the default unit name, and refuses a unit that runs from elsewhere', () => {
-    const r = nestor(['start', 'dashboard'], ['marveen-dashboard|/var/www/marveen'])
+    const r = nestor(['start', 'dashboard'], ['nestor-dashboard|/var/www/nestor-other'])
     expect(r.code).toBe(3)
-    expect(r.err).toMatch(/belongs to another install \(\/var\/www\/marveen\)/)
+    expect(r.err).toMatch(/belongs to another install \(\/var\/www\/nestor-other\)/)
     expect(calls()).toBe('')
   })
 
   it('stop and restart are refused the same way, and the pid-file path is not used as a way around it', () => {
     for (const verb of ['stop', 'restart']) {
-      const r = nestor([verb], ['marveen-dashboard|/var/www/marveen', 'marveen-channels|/var/www/marveen'])
+      const r = nestor([verb], ['nestor-dashboard|/var/www/nestor-other', 'nestor-channels|/var/www/nestor-other'])
       expect(r.code).toBe(3)
     }
     expect(calls()).toBe('')
@@ -77,14 +77,14 @@ describe('units of another install are never touched', () => {
 
   it('acts on its own unit only', () => {
     writeFileSync(join(root, '.env'), 'SERVICE_ID=studio\nMAIN_AGENT_ID=ada\n')
-    const r = nestor(['restart', 'dashboard'], [`studio-dashboard|${root}`, 'marveen-dashboard|/var/www/marveen'])
+    const r = nestor(['restart', 'dashboard'], [`studio-dashboard|${root}`, 'nestor-dashboard|/var/www/nestor-other'])
     expect(r.code).toBe(0)
     expect(calls().trim()).toBe('restart studio-dashboard')
   })
 
   it('status says a unit is not ours instead of reporting it as this install\'s', () => {
-    const r = nestor(['status'], ['marveen-dashboard|/var/www/marveen'])
-    expect(r.out).toMatch(/marveen-dashboard\s+NOT OURS/)
+    const r = nestor(['status'], ['nestor-dashboard|/var/www/nestor-other'])
+    expect(r.out).toMatch(/nestor-dashboard\s+NOT OURS/)
   })
 })
 

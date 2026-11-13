@@ -25,7 +25,7 @@ env_val() { # <KEY> -> the last value of KEY in this install's .env, quotes stri
     | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'
 }
 
-MAIN_ID="$(env_val MAIN_AGENT_ID)"; MAIN_ID="${MAIN_ID:-marveen}"  # the app's own fallback for an install that names nothing (nestor init names it)
+MAIN_ID="$(env_val MAIN_AGENT_ID)"; MAIN_ID="${MAIN_ID:-nestor}"  # the app's own fallback for an install that names nothing (nestor init names it)
 UNIT_ID="$(env_val SERVICE_ID)"; UNIT_ID="${UNIT_ID:-$MAIN_ID}"
 PORT="$(env_val WEB_PORT)"; PORT="${PORT:-3420}"
 HOST="$(env_val WEB_HOST)"; HOST="${HOST:-127.0.0.1}"

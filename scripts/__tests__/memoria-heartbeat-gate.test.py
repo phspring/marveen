@@ -406,10 +406,10 @@ def scenario_agent_id_comes_from_env() -> None:
     else:
         # No .env (a stripped checkout, or a git worktree): the fallback has to
         # be the PRODUCT's, because src/config.ts resolves it as
-        # `env['MAIN_AGENT_ID'] ?? 'marveen'`. On such an install "marveen" is
+        # `env['MAIN_AGENT_ID'] ?? 'nestor'`. On such an install "nestor" is
         # the registered main agent, so the POST is accepted; anything else we
         # invented here would be rejected with 403.
-        check_eq("falls back exactly like src/config.ts", gate.AGENT, "marveen")
+        check_eq("falls back exactly like src/config.ts", gate.AGENT, "nestor")
 
     check_eq(
         "not a name from another install",
@@ -430,7 +430,7 @@ def scenario_env_shapes() -> None:
     import tempfile, pathlib
     esetek = [
         # PARITAS-TABLAZAT a termek src/env.ts readEnvFile-javal + a config.ts
-        # `?? 'marveen'` fallbackjaval. Merve 2026-09-27 a LEFORDITOTT dist/env.js
+        # `?? 'nestor'` fallbackjaval. Merve 2026-09-27 a LEFORDITOTT dist/env.js
         # ellen, tizenharom alakon; minden elvart ertek ONNAN jon, nem attol, ami
         # kenyelmes lenne. Az elozo valtozat itt az ENGEDEKENY alakot pinnelte
         # helyesnek, es ezzel ot ponton a termektol ELTERO viselkedest rogzitett.
@@ -438,14 +438,14 @@ def scenario_env_shapes() -> None:
         # a termek kulcsa `export MAIN_AGENT_ID` lesz, tehat a kulcs HIANYZIK ->
         # fallback. Ez a legfontosabb sor: epp ez a felreiranyitas, amiert a
         # BEEGETETT913 keszult.
-        ("export MAIN_AGENT_ID=exportalt\n", "marveen"),
+        ("export MAIN_AGENT_ID=exportalt\n", "nestor"),
         ('MAIN_AGENT_ID="idezett"\n', "idezett"),
         # a sorvegi komment az ERTEK RESZE a termeknel
         ("MAIN_AGENT_ID=kommentes  # ez itt megjegyzes\n", "kommentes  # ez itt megjegyzes"),
         # idezojel csak akkor jon le, ha MINDKET veg az; itt a veg a komment
         ('MAIN_AGENT_ID="ra#cs"  # a kettes a kommentben\n', '"ra#cs"  # a kettes a kommentben'),
-        ("  export   MAIN_AGENT_ID = 'mind'   \n", "marveen"),
-        ("BOT_NAME=Valami\n", "marveen"),
+        ("  export   MAIN_AGENT_ID = 'mind'   \n", "nestor"),
+        ("BOT_NAME=Valami\n", "nestor"),
         # URES ertek: a termek `??`-ja NULLISH-only, tehat az ures sztring ATMEGY
         ("MAIN_AGENT_ID=\n", ""),
         # a termek minden sort feldolgoz es FELULIRJA a kulcsot: az UTOLSO nyer

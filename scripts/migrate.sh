@@ -68,7 +68,7 @@ if [ ! -e "$SOURCE_PATH" ]; then
 fi
 
 read -rp "$(_t migrate.prompt_agent)" AGENT_ID
-AGENT_ID=${AGENT_ID:-marveen}
+AGENT_ID=${AGENT_ID:-nestor}
 
 echo ""
 echo -e "${BOLD}$(_t migrate.section_2)${NC}"

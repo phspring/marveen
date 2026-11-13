@@ -13,7 +13,7 @@ const SLUG_RE = /^[a-z0-9-]{1,32}$/
 
 /** The slug mxd knows the main agent by (default marveen, as src/config.ts), or null when it fails mxd's rule. */
 export function mainGromzoSlug(mainAgentId: string | undefined | null): string | null {
-  const s = mainAgentId === undefined || mainAgentId === null || mainAgentId === '' ? 'marveen' : mainAgentId
+  const s = mainAgentId === undefined || mainAgentId === null || mainAgentId === '' ? 'nestor' : mainAgentId
   return SLUG_RE.test(s) ? s : null
 }
 

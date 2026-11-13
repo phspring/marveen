@@ -201,7 +201,7 @@ mkdir -p "$CASE"
 OUT="$(run_env_parse "$CASE")"
 EXIT=$?
 assert_zero "no .env: exits 0"                  $EXIT
-assert_eq   "no .env: SERVICE_ID=marveen"  "SERVICE_ID=marveen" "$(echo "$OUT" | grep '^SERVICE_ID=')"
+assert_eq   "no .env: SERVICE_ID=nestor"  "SERVICE_ID=nestor" "$(echo "$OUT" | grep '^SERVICE_ID=')"
 assert_eq   "no .env: BOT_NAME=Marveen"    "BOT_NAME=Marveen"   "$(echo "$OUT" | grep '^BOT_NAME=')"
 
 echo ""

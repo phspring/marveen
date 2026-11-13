@@ -72,6 +72,7 @@ def run(card_id, assignee, msg_text, port, extra=()):
     env = dict(os.environ)
     env['KARTYA_DB'] = DB_PATH
     env['CLAUDECLAW_ROOT'] = SANDBOX_ROOT
+    env.pop('MAIN_AGENT_ID', None)  # a fo agens neve a sandbox .env-jebol (vagy az alapbol) jon, nem a futtato shellbol
     env['KARTYA_TOKEN'] = 'teszt-token'
     env['KARTYA_API'] = f'http://127.0.0.1:{port}/api/messages'
     return subprocess.run(
@@ -158,8 +159,23 @@ def main():
     check('4 lefutott', p.returncode == 0, p.stdout + p.stderr)
     check('4 nem onmagahoz megy', POSTED and POSTED[0]['to'] != 'boni',
           f'kapott: {POSTED[0]["to"] if POSTED else "semmi"}')
-    check('4 a koordinatorhoz megy', POSTED and POSTED[0]['to'] == 'marveen')
+    check('4 a koordinatorhoz megy', POSTED and POSTED[0]['to'] == 'nestor')  # .env nelkul a src/config.ts alapja
     check('4 felado tovabbra is boni', POSTED and POSTED[0]['from'] == 'boni')
+
+    # 4b. A koordinator a TELEPITES fo agense: a .env MAIN_AGENT_ID-je, nem egy beegetett nev.
+    #     Korabban 'marveen' volt beegetve, egy atnevezett telepitesen nem letezo agenshez ment.
+    env_utvonal = os.path.join(SANDBOX_ROOT, '.env')
+    with open(env_utvonal, 'w', encoding='utf-8') as f:
+        f.write('# teszt\nMAIN_AGENT_ID="ada"\n')
+    try:
+        POSTED.clear()
+        p = run('KULDOD2906', 'boni', 'Kartya: KULDOD2906 -- Boni sajat magara osztja.', port,
+                extra=('--from', 'boni'))
+        check('4b lefutott', p.returncode == 0, p.stdout + p.stderr)
+        check('4b a .env fo agensehez megy', POSTED and POSTED[0]['to'] == 'ada',
+              f'kapott: {POSTED[0]["to"] if POSTED else "semmi"}')
+    finally:
+        os.remove(env_utvonal)
     check('4 KIMONDVA a kimeneten', 'ATIRANYITVA' in p.stdout, p.stdout)
     check('4 KIMONDVA az uzenet torzseben', POSTED and 'ATIRANYITVA' in POSTED[0]['content'])
 

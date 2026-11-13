@@ -187,7 +187,7 @@ fi
 
 # ── Main agent session ─────────────────────────────────────────────────────
 MAIN_AGENT_ID="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2-)"
-MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
+MAIN_AGENT_ID="${MAIN_AGENT_ID:-nestor}"
 MAIN_SESSION="${MAIN_AGENT_ID}-channels"
 
 if ! tmux has-session -t "=$MAIN_SESSION:" 2>/dev/null; then

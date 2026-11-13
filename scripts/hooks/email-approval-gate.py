@@ -649,7 +649,7 @@ def _post_daily_log(text: str):
         if not token:
             return False, "ures dashboard-token"
         url = "http://127.0.0.1:%s/api/daily-log" % _install_setting("WEB_PORT", "3420")
-        body = json.dumps({"agent_id": _install_setting("MAIN_AGENT_ID", "marveen"),
+        body = json.dumps({"agent_id": _install_setting("MAIN_AGENT_ID", "nestor"),
                            "content": text}, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(url, data=body, method="POST", headers={
             "Authorization": "Bearer " + token,

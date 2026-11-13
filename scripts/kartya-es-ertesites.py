@@ -180,7 +180,7 @@ _REJTETT_JEL = '.hidden-from-dashboard'
 _NEV_RX = re.compile(r'^[a-z0-9][a-z0-9_-]{0,31}$')
 
 
-def flotta_az_agents_konyvtarbol(root, fo_agens='marveen'):
+def flotta_az_agents_konyvtarbol(root, fo_agens='nestor'):
     """A futo flotta nevei a <root>/agents alol, a dashboard listAgentNames szabalyaval."""
     base = os.path.join(root, 'agents')
     try:
@@ -206,8 +206,29 @@ def flotta_az_agents_konyvtarbol(root, fo_agens='marveen'):
     return out
 
 
-FLEET = _FLEET_KEZI | flotta_az_agents_konyvtarbol(ROOT, os.environ.get('MAIN_AGENT_ID') or 'marveen')
-COORDINATOR = 'marveen'
+def _fo_agens_env_fajlbol(root):
+    """MAIN_AGENT_ID a telepites .env-jebol (utolso definicio nyer, a kulso idezojel lejon), vagy None."""
+    talalt = None
+    try:
+        with open(os.path.join(root, '.env'), encoding='utf-8') as fh:
+            for sor in fh:
+                k, sep, v = sor.strip().partition('=')
+                if sep and k.strip() == 'MAIN_AGENT_ID':
+                    v = v.strip()
+                    if len(v) >= 2 and v[0] == v[-1] and v[0] in '"\'':
+                        v = v[1:-1]
+                    talalt = v or talalt
+    except OSError:
+        pass
+    return talalt
+
+
+# A fo agens neve: MAIN_AGENT_ID a kornyezetbol, kulonben a telepites .env-jebol, kulonben a src/config.ts alapja
+# ('nestor'). O a koordinator, es a flotta tagja. Korabban beegetett 'marveen' volt: egy atnevezett telepitesen a
+# koordinatornak szant uzenet egy nem letezo agenshez ment.
+_FO_AGENS = os.environ.get('MAIN_AGENT_ID') or _fo_agens_env_fajlbol(ROOT) or 'nestor'
+FLEET = _FLEET_KEZI | {_FO_AGENS} | flotta_az_agents_konyvtarbol(ROOT, _FO_AGENS)
+COORDINATOR = _FO_AGENS
 GAZDA = 'szabolcs'
 
 

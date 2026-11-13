@@ -51,7 +51,7 @@ if [ -z "${MAIN_AGENT_ID:-}" ]; then
   if [ -f "$INSTALL_DIR/.env" ]; then
     MAIN_AGENT_ID="$(grep -E '^MAIN_AGENT_ID=' "$INSTALL_DIR/.env" | tail -1 | cut -d'=' -f2- | tr -d '"' || true)"
   fi
-  MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
+  MAIN_AGENT_ID="${MAIN_AGENT_ID:-nestor}"
 fi
 
 MAIN_SESSION="${MAIN_AGENT_ID}-channels"

@@ -66,7 +66,7 @@ read_env() {
 
 SERVICE_ID="$(read_env SERVICE_ID)"
 MAIN_AGENT_ID_ENV="$(read_env MAIN_AGENT_ID)"
-SERVICE_ID="${SERVICE_ID:-${MAIN_AGENT_ID_ENV:-marveen}}"
+SERVICE_ID="${SERVICE_ID:-${MAIN_AGENT_ID_ENV:-nestor}}"
 ACTIVE_PROVIDER="$(read_env CHANNEL_PROVIDER)"
 
 # Guard: never silently unwire the channel the install is actually using.

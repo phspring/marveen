@@ -35,7 +35,7 @@ log(){ echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 env_val() { grep -E "^$1=" "$INSTALL_DIR/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'"' '; }
 
 MAIN_AGENT_ID="$(env_val MAIN_AGENT_ID)"
-MAIN_AGENT_ID="${MAIN_AGENT_ID:-marveen}"
+MAIN_AGENT_ID="${MAIN_AGENT_ID:-nestor}"
 MAIN_AGENT_ID="${MAIN_AGENT_ID//[^a-zA-Z0-9_-]/}"
 SESSION="${MAIN_AGENT_ID}-channels"
 

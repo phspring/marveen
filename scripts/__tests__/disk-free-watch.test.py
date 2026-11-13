@@ -107,5 +107,51 @@ class Cli(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
 
 
+
+class Sender(unittest.TestCase):
+    """The agent message goes from/to the install's own main agent, not a name written into the script."""
+
+    def _with_env(self, text):
+        d = tempfile.mkdtemp()
+        if text is not None:
+            with open(os.path.join(d, ".env"), "w", encoding="utf-8") as f:
+                f.write(text)
+        return d
+
+    def test_main_agent_id_comes_from_the_install_env(self):
+        self.assertEqual(dfw._main_agent_id(self._with_env("A=1\nMAIN_AGENT_ID=ada\n")), "ada")
+
+    def test_last_definition_wins_and_quotes_come_off(self):
+        self.assertEqual(dfw._main_agent_id(self._with_env("MAIN_AGENT_ID=old\nMAIN_AGENT_ID=\"new\"\n")), "new")
+
+    def test_without_a_name_it_is_the_product_default(self):
+        self.assertEqual(dfw._main_agent_id(self._with_env(None)), "nestor")
+        self.assertEqual(dfw._main_agent_id(self._with_env("OTHER=x\n")), "nestor")
+
+    def test_the_posted_message_uses_it(self):
+        sent = {}
+
+        class Resp:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+        def fake(req, timeout=None):
+            sent.update(json.loads(req.data.decode()))
+            return Resp()
+
+        d = self._with_env("MAIN_AGENT_ID=ada\n")
+        os.makedirs(os.path.join(d, "scripts")); os.makedirs(os.path.join(d, "store"))
+        with open(os.path.join(d, "store", ".dashboard-token"), "w") as f:
+            f.write("t")
+        orig = dfw.urllib.request.urlopen
+        dfw.urllib.request.urlopen = fake
+        try:
+            dfw.send("x", d)
+        finally:
+            dfw.urllib.request.urlopen = orig
+        self.assertEqual((sent.get("from"), sent.get("to")), ("ada", "ada"))
+
+
 if __name__ == "__main__":
     unittest.main()
