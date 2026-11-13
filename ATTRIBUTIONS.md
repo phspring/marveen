@@ -19,6 +19,13 @@ A Marveen saját licensze: [LICENSE](./LICENSE) (MIT).
 - **Hol a Marveen-ben**: `seed-skills/handoff/`, `seed-skills/retrospective/`, `seed-skills/skill-management/`
 - **Mit csinál nálunk**: a skill-csontváz a Marveen flotta-architektúrájára adaptálva. Az 5-szekciós handoff struktúra (Goal, Current Progress, What Worked, What Didn't Work, Next Steps), a sub-agent retrospective minta, és a skill-rot életciklus-kezelés koncepció mind Zhutov csomagjából származik. A megvalósítás TypeScript-ben újraírva, integrálva a Marveen checkpoint, DREAM, memória és inter-agent message rendszereivel.
 
+### claude-code-security-review (biztonsági átnézés)
+- **Forrás**: https://github.com/anthropics/claude-code-security-review
+- **Szerző**: Anthropic
+- **Licensz**: MIT
+- **Hol a Marveen-ben**: `.github/workflows/security-review.yml` (a GitHub Action, commithez pinelve, minden PR-on) és `seed-skills/code-security-review/` (a `/security-review` parancs utasításai skillként adaptálva, az ügynököknek)
+- **Mit csinál nálunk**: a PR diffjében magas bizonyosságú, kihasználható sérülékenységeket keres (injekció, auth-megkerülés, titkok, deszerializáció, XSS), a téves riasztásokat találatonként külön szűri. A CI-ban a `CLAUDE_API_KEY` repo-secret nélkül kihagyja magát.
+
 ### printing-press (agent-CLI generátor)
 - **Forrás**: https://github.com/mvanhorn/cli-printing-press
 - **Szerző**: Mike Van Horn
