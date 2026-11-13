@@ -25,11 +25,29 @@ untouched code are out of scope.
 
 Pick the target from the request (default: the current branch):
 
-| Target | Commands |
-|---|---|
-| current branch | `BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD \|\| echo origin/develop)`; `git diff --name-only "$BASE"...`; `git log --no-decorate "$BASE"...`; `git diff --merge-base "$BASE"` |
-| PR number | `gh pr view <n> --json baseRefName,headRefName,files` and `gh pr diff <n>` (add `-R <owner/repo>` when the default remote is not the right repo) |
-| uncommitted | `git status`, `git diff`, `git diff --cached` |
+Current branch:
+
+```bash
+BASE=$(git symbolic-ref -q --short refs/remotes/origin/HEAD || echo origin/develop)
+git diff --name-only "$BASE"...
+git log --no-decorate "$BASE"...
+git diff --merge-base "$BASE"
+```
+
+A PR number (add `-R <owner/repo>` when the default remote is not the right repo):
+
+```bash
+gh pr view <n> --json baseRefName,headRefName,files
+gh pr diff <n>
+```
+
+Uncommitted changes:
+
+```bash
+git status
+git diff
+git diff --cached
+```
 
 If the base cannot be resolved (`origin/HEAD` missing, no `origin/develop`), check `origin/main`, then ask instead of
 guessing. An empty diff is a result ("nothing to review"), not a reason to review the whole repository.
