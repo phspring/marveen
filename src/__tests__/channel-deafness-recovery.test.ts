@@ -19,6 +19,8 @@ import { mainConfigDecisionForTest } from '../web/main-config-decision.js'
 // CONTRACT: the respawn command MUST carry the .bun/bin PATH export -- without
 // it the respawned bun telegram bridge can't be located and the session comes
 // up channel-less. Lock it so a future refactor can't silently drop it.
+const INST = '/srv/inst/.claude-home'
+
 describe('buildMainSessionRespawnCmd', () => {
   const base = { claudePath: '/usr/local/bin/claude', pluginId: 'telegram@claude-plugins-official', model: "claude-opus-4-8[1m]", config: mainConfigDecisionForTest(), channelStateEnv: { name: 'TELEGRAM_STATE_DIR', dir: '/opt/marveen/.claude/channels/telegram' } }
 
@@ -76,10 +78,12 @@ describe('buildMainSessionRespawnCmd', () => {
   // null, so a wizard-entered fleet token NEVER reached a respawned main
   // session -- it silently fell back to ~/.claude/.credentials.json. The
   // fleetToken leg closes that: token export WITHOUT a config-dir override.
-  it('exports the fleet token (no CLAUDE_CONFIG_DIR) when fleetToken is set and isolation is off', () => {
-    const cmd = buildMainSessionRespawnCmd({ ...base, continueSession: false, config: mainConfigDecisionForTest({ fleetToken: true }) })
+  // docs/sajat-claude-home.md: "no config-dir override" used to mean the host ~/.claude. Now a launch with no mode dir
+  // runs on the instance's own Claude home: CLAUDE_CONFIG_DIR is that home (never unset), plus the token.
+  it('exports the fleet token AND CLAUDE_CONFIG_DIR = the instance home when fleetToken is set and isolation is off', () => {
+    const cmd = buildMainSessionRespawnCmd({ ...base, continueSession: false, instanceHome: INST, config: mainConfigDecisionForTest({ fleetToken: true }) })
     expect(cmd).toContain('export CLAUDE_CODE_OAUTH_TOKEN="$(cat ')
-    expect(cmd).not.toContain('CLAUDE_CONFIG_DIR')
+    expect(cmd).toContain(`export CLAUDE_CONFIG_DIR='${INST}'`)
   })
 
   it('exports BOTH the isolated config dir and the token when isolation is on (unchanged macOS contract)', () => {
@@ -88,10 +92,12 @@ describe('buildMainSessionRespawnCmd', () => {
     expect(cmd).toContain('export CLAUDE_CODE_OAUTH_TOKEN="$(cat ')
   })
 
-  it('exports no auth env at all without a fleet token or isolation (unchanged legacy contract)', () => {
-    const cmd = buildMainSessionRespawnCmd({ ...base, continueSession: false })
+  // docs/sajat-claude-home.md: no token and no isolation -> no auth env, but the config dir is the instance home.
+  it('exports no auth env without a fleet token or isolation; the config dir is the instance home', () => {
+    const cmd = buildMainSessionRespawnCmd({ ...base, continueSession: false, instanceHome: INST })
     expect(cmd).not.toContain('CLAUDE_CODE_OAUTH_TOKEN')
-    expect(cmd).not.toContain('CLAUDE_CONFIG_DIR')
+    expect(cmd).toContain(`export CLAUDE_CONFIG_DIR='${INST}'`)
+    expect(cmd).toContain(`export NESTOR_CLAUDE_HOME='${INST}'`)
   })
 
   // CLAUDEPLANWATCHDOG912: an own-credential dir (explicit MAIN_AGENT_CONFIG_DIR,
@@ -131,8 +137,9 @@ describe('buildMainSessionRespawnCmd', () => {
     expect(execFileSync('sh', ['-c', own], { encoding: 'utf-8', env })).toBe('[unset|unset|/tmp/own-login-dir]')
     // CONTROL: the same env reaches claude untouched on the shared-config path,
     // so the unset above is what removed them, not the probe.
-    const shared = buildMainSessionRespawnCmd({ ...base, claudePath: probe, continueSession: false, config: mainConfigDecisionForTest() })
-    expect(execFileSync('sh', ['-c', shared], { encoding: 'utf-8', env })).toBe('[sk-ant-oat01-respawnprobe|sk-ant-api03-respawnprobe|unset]')
+    // (the config dir there is the instance home now, docs/sajat-claude-home.md)
+    const shared = buildMainSessionRespawnCmd({ ...base, claudePath: probe, continueSession: false, instanceHome: INST, config: mainConfigDecisionForTest() })
+    expect(execFileSync('sh', ['-c', shared], { encoding: 'utf-8', env })).toBe(`[sk-ant-oat01-respawnprobe|sk-ant-api03-respawnprobe|${INST}]`)
   })
 
   // Token-mode rotated plan: the generic isolated dir, but the PLAN's own

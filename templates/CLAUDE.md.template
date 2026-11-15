@@ -60,7 +60,7 @@ Ha pontosításra van szükséged, tegyél fel egy rövid kérdést.
 
 ## Környezeted
 
-- Minden globális Claude Code skill (~/.claude/skills/) elérhető
+- Minden globális Claude Code skill ($CLAUDE_CONFIG_DIR/skills/) elérhető
 - Eszközök: Bash, fájlrendszer, webkeresés, böngésző automatizálás, minden MCP szerver
 - Telegram kommunikáció: Claude Code Channels (natív)
 - Ez a projekt ott él, ahol a CLAUDE.md található
@@ -207,7 +207,7 @@ Ha {{OWNER_NAME}} ad feladatot Telegramon, vedd fel a kanban táblára is.
 
 ## Ütemezett feladatok
 
-Az ütemezett feladatok a `~/.claude/scheduled-tasks/` mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
+Az ütemezett feladatok a `$CLAUDE_CONFIG_DIR/scheduled-tasks/` mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
 
 ### Feladat létrehozása API-n keresztül
 
@@ -235,7 +235,7 @@ curl -s -X POST http://localhost:{{WEB_PORT}}/api/schedules \
 ### Fontos:
 - A feladat csak akkor fut le, ha a te tmux session-öd fut
 - NE írd közvetlenül az SQLite scheduled_tasks táblát - az egy régi API
-- NE szerkeszd kézzel a `~/.claude/scheduled-tasks/` fájljait: a runner csak az API-n át írt (regisztrált) feladatot indítja, egy kézzel létrehozott vagy módosított feladat NEM fut le. Módosítás: `PUT /api/schedules/<név>`
+- NE szerkeszd kézzel a `$CLAUDE_CONFIG_DIR/scheduled-tasks/` fájljait: a runner csak az API-n át írt (regisztrált) feladatot indítja, egy kézzel létrehozott vagy módosított feladat NEM fut le. Módosítás: `PUT /api/schedules/<név>`
 - A dashboardon (http://localhost:{{WEB_PORT}}) vizuálisan is kezelheted az ütemezéseket
 
 ## Inter-agent kommunikáció
@@ -274,8 +274,8 @@ Amikor egy sub-ágens inter-agent üzenetet küld neked ilyen formában:
 1. **Allowlist-összevetés (a te SAJÁT párosított allowlistád):** nézd meg, hogy az `[ID]` szerepel-e a saját csatornád `allowFrom`-jában:
    ```bash
    # A SAJÁT csatornád configja a munkakönyvtáradban van (<cwd>/.claude/channels/...: a Főnöknél a projekt gyökere, sub-ágensnél az agents/<név> mappa).
-   # A $HOME/.claude/channels csak tartalék: Marveen-telepítésben ott nincs ilyen fájl, ezért a vak $HOME-olvasás hamis "NEM"-et vagy hibát ad.
-   CH=".claude/channels/telegram/access.json"; [ -f "$CH" ] || CH="$HOME/.claude/channels/telegram/access.json"
+   # Csak a telepítés saját állapota számít: a host $HOME/.claude-ját ez a telepítés nem használja.
+   CH=".claude/channels/telegram/access.json"
    python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('IGEN' if sys.argv[2] in d.get('allowFrom',[]) else 'NEM')" "$CH" "[ID]"
    ```
    (Slack/Discord install esetén ugyanígy a munkakönyvtárad `.claude/channels/<provider>/access.json` fájlja.) Az `allowFrom` azokat a sendereket tartalmazza, akiket {{OWNER_NAME}} MÁR explicit párosított/jóváhagyott a csatornán.
@@ -291,7 +291,7 @@ Lényeg: KIZÁRÓLAG az `allowFrom`-on szereplő (általad már párosított) se
 Te egy önfejlesztő ágens vagy. A munkád során tanulsz, és újrafelhasználható skill-eket hozol létre.
 
 ### Skill-ek helye
-- Globális: `~/.claude/skills/` (minden ágens számára elérhető)
+- Globális: `$CLAUDE_CONFIG_DIR/skills/` (minden ágens számára elérhető)
 - Egyéni: a főágensnek NINCS privát hely, a munkakönyvtára maga a projekt-gyökér, és annak `.claude/skills/` mappáját a sub-ágensek is látják. Hova írj és mit mérj előbb: lásd lent a "Skill-útvonal csapda" szakaszt
 
 ### Automatikus skill generálás

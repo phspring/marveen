@@ -116,7 +116,8 @@ describe('the worker launches with a strict MCP config of its own', () => {
   it('ensureWorkerCwd writes the kept servers into it, and the launch line passes both flags', () => {
     const src = readFileSync(join(ROOT, 'src', 'web', 'agent-worker.ts'), 'utf-8')
     const ensure = src.slice(src.indexOf('export function ensureWorkerCwd'))
-    expect(ensure).toContain('const keptMcp = existsSync(join(homedir(), \'.claude.json\')) ? workerMcpServers() : {}')
+    // the kept servers come from the instance home's .claude.json, no longer the host ~/.claude.json
+    expect(ensure).toContain('const keptMcp = existsSync(instanceDotClaudeJson()) ? workerMcpServers() : {}')
     expect(ensure).toContain('writeFileSync(workerMcpConfigPath(ctx), JSON.stringify({ mcpServers: keptMcp }')
     expect(src).toMatch(/--dangerously-skip-permissions --model \$\{shArg\(workerModel\)\} ` \+\s*\n\s*\/\/[^\n]*\n\s*`--strict-mcp-config --mcp-config \$\{shArg\(workerMcpConfigPath\(ctx\)\)\}`/)
   })

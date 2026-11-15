@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+// Seeds land in the instance's own Claude home (CLAUDE_HOME_DIR, scripts/lib/claude-home.sh), no longer <HOME>/.claude.
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync, statSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
@@ -137,9 +138,9 @@ function makeFixture() {
   chmodSync(join(skill, 'scripts', 'tool.py'), 0o755)
   git(install, ['add', '-A']); git(install, ['commit', '-q', '-m', 'v2'])
   const home = join(base, 'home')
-  const live = join(home, '.claude', 'skills', 'demo')
+  const live = join(home, 'inst-home', 'skills', 'demo')
   mkdirSync(live, { recursive: true })
-  mkdirSync(join(home, '.claude', 'scheduled-tasks'), { recursive: true })
+  mkdirSync(join(home, 'inst-home', 'scheduled-tasks'), { recursive: true })
   return { base, install, home, live }
 }
 
@@ -147,7 +148,7 @@ function runRefresh(f: ReturnType<typeof makeFixture>): string {
   const file = join(f.base, 'probe.sh')
   writeFileSync(file, [
     'set -u', 'GREEN=""; NC=""',
-    `INSTALL_DIR="${f.install}"`, `HOME="${f.home}"`,
+    `INSTALL_DIR="${f.install}"`, `HOME="${f.home}"`, `CLAUDE_HOME_DIR="${f.home}/inst-home"`,
     'MAIN_AGENT_ID=""; BOT_NAME=""; OWNER_NAME=""; WEB_PORT=""',
     funcs(),
     'run_seed_refresh',
@@ -214,14 +215,14 @@ describe('the update refresh brings a skill subdir to an existing install (SEEDS
       writeFileSync(join(task, 'threat-intel', 'cat.json'), '{}\n')
       git(install, ['add', '-A']); git(install, ['commit', '-q', '-m', 'v1'])
       const home = join(base, 'home')
-      const live = join(home, '.claude', 'scheduled-tasks', 'scan')
+      const live = join(home, 'inst-home', 'scheduled-tasks', 'scan')
       mkdirSync(live, { recursive: true })
-      mkdirSync(join(home, '.claude', 'skills'), { recursive: true })
+      mkdirSync(join(home, 'inst-home', 'skills'), { recursive: true })
       writeFileSync(join(live, 'SKILL.md'), 'scan\n')
       const file = join(base, 'probe.sh')
       writeFileSync(file, [
         'set -u', 'GREEN=""; NC=""',
-        `INSTALL_DIR="${install}"`, `HOME="${home}"`,
+        `INSTALL_DIR="${install}"`, `HOME="${home}"`, `CLAUDE_HOME_DIR="${home}/inst-home"`,
         'MAIN_AGENT_ID="m"; BOT_NAME=""; OWNER_NAME=""; WEB_PORT=""',
         funcs(), 'run_seed_refresh',
       ].join('\n') + '\n')

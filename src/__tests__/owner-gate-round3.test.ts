@@ -20,7 +20,12 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { join } from 'node:path'
 
 // A path only (created in beforeAll): vi.mock factories are hoisted above the imports.
-const HOME_SANDBOX = vi.hoisted(() => `${(process.env.TMPDIR || '/tmp').replace(/\/$/, '')}/og3-home-${process.pid}-${Date.now()}`)
+const HOME_SANDBOX = vi.hoisted(() => {
+  const h = `${(process.env.TMPDIR || '/tmp').replace(/\/$/, '')}/og3-home-${process.pid}-${Date.now()}`
+  // The global skills dir is the instance's own Claude home's now (src/claude-home.ts), not <HOME>/.claude/skills.
+  process.env.NESTOR_CLAUDE_HOME = `${h}/inst-home`
+  return h
+})
 vi.mock('node:os', async (orig) => {
   const real = await orig<typeof import('node:os')>()
   return { ...real, default: { ...real, homedir: () => HOME_SANDBOX }, homedir: () => HOME_SANDBOX }
@@ -83,7 +88,7 @@ const PEER = '__test-og3-peer'
 const DIR = agentDir(AGENT)
 const PEER_DIR = agentDir(PEER)
 const SKILL = '__og3-skill'
-const GLOBAL_SKILL_DIR = join(HOME_SANDBOX, '.claude', 'skills', SKILL)
+const GLOBAL_SKILL_DIR = join(HOME_SANDBOX, 'inst-home', 'skills', SKILL)
 const AGENT_SKILL_DIR = join(DIR, '.claude', 'skills', SKILL)
 
 type Auth = { kind: 'token' | 'session' | 'device'; scope?: 'full' | 'operator'; device?: string; tokenAgent?: string } | undefined

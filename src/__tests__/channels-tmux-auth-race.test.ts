@@ -14,6 +14,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, existsSync, writeFileSync, chmodSync, statSync, lstatSync, symlinkSync, utimesSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { copyFileSync } from 'node:fs'
+import { makeInstanceHome } from './helpers/instance-home.js'
 
 const SH = readFileSync(join(__dirname, '..', '..', 'scripts', 'channels.sh'), 'utf-8')
 const HAS_TMUX = spawnSync('tmux', ['-V']).status === 0
@@ -43,6 +45,13 @@ function primaryLaunch(): string {
 
 let dir = ''
 let sock = ''
+// The cut-out auth block now sits after channels.sh's instance-home step (docs/sajat-claude-home.md): a launch needs
+// the install's own Claude home (and the helper that resolves it), or channels.sh refuses to start the main agent.
+function withInstanceHome(d: string): void {
+  mkdirSync(join(d, 'scripts', 'lib'), { recursive: true })
+  copyFileSync(join(__dirname, '..', '..', 'scripts', 'lib', 'claude-home.sh'), join(d, 'scripts', 'lib', 'claude-home.sh'))
+  makeInstanceHome(join(d, '.claude-home'), d)
+}
 afterEach(() => {
   if (sock) spawnSync('tmux', ['-S', sock, 'kill-server'])
   if (dir) rmSync(dir, { recursive: true, force: true })
@@ -75,6 +84,7 @@ function waitServerGone(s: string): string {
 describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)', () => {
   it('root cause: start-server alone keeps no server, so set-environment -g is lost', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxrace-'))
+    withInstanceHome(dir)
     sock = join(dir, 's')
     const out = bash(`tmux -S ${sock} start-server; ${waitServerGone(sock)}; tmux -S ${sock} set-environment -g X 1 2>&1; echo rc=$?`)
     expect(out).toMatch(/no server running/)
@@ -82,6 +92,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('the worker wins the race: the channels pane (launched by the real channels.sh lines) still has the token, and the server global env gets it after new-session', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxrace-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     sock = join(dir, 's')
     const out = join(dir, 'pane-env')
@@ -110,6 +121,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('without the fix (no -e, no second set-environment) the same race leaves the pane without the token', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxrace-'))
+    withInstanceHome(dir)
     sock = join(dir, 's')
     const out = join(dir, 'pane-env')
     bash(`
@@ -125,6 +137,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('no token configured: nothing sourced, no auth file, nothing breaks', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxrace-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     sock = join(dir, 's')
     const n = bash(`TMUX="tmux -S ${sock}"; INSTALL_DIR=${dir}; ${authBlock()}; echo "[\${AUTH_PANE_ENV}]"`)
@@ -137,6 +150,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
   // receives the value.
   it('a pre-existing 0644 auth file: replaced by a 0600 file, never written in place', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfile-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const f = join(dir, 'store', '.channels-pane-auth')
     writeFileSync(f, 'old\n')
@@ -150,6 +164,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('a symlink planted at the auth path: its target is never written, the link itself is replaced', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfile-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const target = join(dir, 'elsewhere')
     writeFileSync(target, 'untouched\n')
@@ -166,6 +181,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
   // failure is NAMED, never silent, and the launch goes on.
   it('mktemp fails: a named WARN in channels-failures.log and stderr, no AUTH_PANE_ENV, the block does not abort', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfail-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const out = bash(`TMUX="tmux -S ${join(dir, 's')}"; INSTALL_DIR=${dir}; mktemp() { return 1; }; ${authBlock()}; echo "[\${AUTH_PANE_ENV}]"`, { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-failprobe' })
     expect(out.trim().split('\n').pop()).toBe('[]')
@@ -176,6 +192,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
   it('the write fails (temp file not writable): named WARN, temp file removed, no AUTH_PANE_ENV, token never in the log', () => {
     if (process.getuid && process.getuid() === 0) return // root ignores file modes
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfail-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const out = bash(`TMUX="tmux -S ${join(dir, 's')}"; INSTALL_DIR=${dir}; mktemp() { local f; f="$(command mktemp "$@")" || return 1; chmod 0400 "$f"; printf '%s\\n' "$f"; }; ${authBlock()}; echo "[\${AUTH_PANE_ENV}]"`, { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-failprobe' })
     expect(out.trim().split('\n').pop()).toBe('[]')
@@ -187,6 +204,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('a stale temp file left by a killed launch is swept', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfile-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const stale = join(dir, 'store', '.channels-pane-auth.AbCdEf')
     writeFileSync(stale, 'export CLAUDE_CODE_OAUTH_TOKEN=old\n')
@@ -199,6 +217,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('a FRESH temp file (a concurrent launch between its mktemp and mv) is left alone', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfile-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const live = join(dir, 'store', '.channels-pane-auth.LiVeOn')
     writeFileSync(live, 'export CLAUDE_CODE_OAUTH_TOKEN=other\n', { mode: 0o600 })
@@ -209,6 +228,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('a temp file that vanished before the write is re-created 0600, even under a permissive umask', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfile-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     // mktemp succeeds, then the file disappears (e.g. swept by another launch)
     // before the write: `>>` creates a NEW file, which takes the umask.
@@ -219,6 +239,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('a token with quotes, $, backticks and a newline round-trips through the file unchanged, and CFG_ENV (after it) still wins', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxauthfile-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const nasty = "a'b\"c$HOME`id`\nd"
     const sourced = bash(`TMUX="tmux -S ${join(dir, 's')}"; INSTALL_DIR=${dir}; ${authBlock()}; . "\$INSTALL_DIR/store/.channels-pane-auth" && printf '%s' "\$CLAUDE_CODE_OAUTH_TOKEN"`, { CLAUDE_CODE_OAUTH_TOKEN: nasty })
@@ -251,6 +272,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('the token is in no process command line when the channels launch creates the tmux server', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxargv-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     sock = join(dir, 's')
     const out = join(dir, 'pane-env')
@@ -273,6 +295,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh tmux auth (real tmux, isolated socket)',
 
   it('negative control: the old "new-session -e TOKEN=..." launch leaves the token in the server command line', () => {
     dir = mkdtempSync(join(tmpdir(), 'tmuxargv-'))
+    withInstanceHome(dir)
     sock = join(dir, 's')
     bash(`tmux -S ${sock} new-session -d -s channels -e "CLAUDE_CODE_OAUTH_TOKEN=$CLAUDE_CODE_OAUTH_TOKEN" "sleep 30"`, { CLAUDE_CODE_OAUTH_TOKEN: TOKEN })
     expect(countInPs()).toBeGreaterThan(0)
@@ -292,6 +315,7 @@ describe.skipIf(!HAS_TMUX)('channels.sh start-server leaves the state-dir var ou
   it('with exit-empty off, the server and a later session do not inherit the main state dir', () => {
     expect(START_SERVER_LINES).toHaveLength(1)
     dir = mkdtempSync(join(tmpdir(), 'tmuxss-'))
+    withInstanceHome(dir)
     sock = join(dir, 's')
     const conf = join(dir, 'tmux.conf')
     writeFileSync(conf, 'set -g exit-empty off\n')
@@ -372,6 +396,7 @@ describe('own-login CFG_ENV drops every credential the auth file sourced (APIKEY
 
   it('CONTROL: the auth file alone hands the pane both the fleet token and the API key', () => {
     dir = mkdtempSync(join(tmpdir(), 'ownlogin-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     const out = bash(`TMUX="tmux -S ${join(dir, 's')}"; INSTALL_DIR=${dir}; ${authBlock()}; eval "\${AUTH_PANE_ENV}${PROBE.replace(/"/g, '\\"').replace(/\$/g, '\\$')}"`, CREDS)
     expect(out).toBe(`[${CREDS.CLAUDE_CODE_OAUTH_TOKEN}|${CREDS.ANTHROPIC_API_KEY}|unset]`)
@@ -379,6 +404,7 @@ describe('own-login CFG_ENV drops every credential the auth file sourced (APIKEY
 
   it('auth file, then the own-login CFG_ENV: no fleet token, no API key, only the dir', () => {
     dir = mkdtempSync(join(tmpdir(), 'ownlogin-'))
+    withInstanceHome(dir)
     mkdirSync(join(dir, 'store'))
     mkdirSync(join(dir, 'own-cfg'))
     const out = bash(`TMUX="tmux -S ${join(dir, 's')}"; INSTALL_DIR=${dir}; ${authBlock()}; _cfg_dir=${join(dir, 'own-cfg')}; ${OWN_LOGIN_CFG}; eval "\${AUTH_PANE_ENV}\${CFG_ENV}${PROBE.replace(/"/g, '\\"').replace(/\$/g, '\\$')}"`, CREDS)

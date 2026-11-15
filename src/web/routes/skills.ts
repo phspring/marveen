@@ -1,4 +1,5 @@
 import { createReadStream, existsSync, readdirSync, mkdirSync, unlinkSync, rmSync, statSync } from 'node:fs'
+import { instancePluginsDir, instanceSkillsDir } from '../../claude-home.js'
 import { join, sep, basename } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
@@ -85,7 +86,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
     }
     const skills: SkillEntry[] = []
 
-    const USER_SKILLS_DIR = join(homedir(), '.claude', 'skills')
+    const USER_SKILLS_DIR = instanceSkillsDir()
     if (existsSync(USER_SKILLS_DIR)) {
       const SKIP_DIRS = new Set(['skills', 'temp_skills', 'tmp_skills', '.skill-index.md'])
       const dirs = readdirSync(USER_SKILLS_DIR).filter(f => {
@@ -115,7 +116,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
       }
     }
 
-    const PLUGINS_CACHE_DIR = join(homedir(), '.claude', 'plugins', 'cache')
+    const PLUGINS_CACHE_DIR = join(instancePluginsDir(), 'cache')
     if (existsSync(PLUGINS_CACHE_DIR)) {
       const walkForSkills = (dir: string, depth: number, packagePath: string[]): void => {
         if (depth > 4) return
@@ -236,7 +237,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
   // Export must be matched before the generic /:name detail route, otherwise
   // the detail handler intercepts GET /api/skills/export as skillName="export".
   if (path === '/api/skills/export' && method === 'GET') {
-    const USER_SKILLS_DIR = join(homedir(), '.claude', 'skills')
+    const USER_SKILLS_DIR = instanceSkillsDir()
     if (!existsSync(USER_SKILLS_DIR)) {
       json(res, { error: 'No user skills directory' }, 404)
       return true
@@ -357,7 +358,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
       const lastColon = skillName.lastIndexOf(':')
       const pluginPath = skillName.slice(0, lastColon)
       const skillBasename = skillName.slice(lastColon + 1)
-      const PLUGINS_CACHE_DIR = join(homedir(), '.claude', 'plugins', 'cache')
+      const PLUGINS_CACHE_DIR = join(instancePluginsDir(), 'cache')
       const skillDir = join(PLUGINS_CACHE_DIR, ...pluginPath.split('/'), 'skills', skillBasename)
       if (!skillDir.startsWith(PLUGINS_CACHE_DIR + sep)) {
         json(res, { error: 'Skill not found' }, 404)
@@ -385,7 +386,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
       return true
     }
 
-    const GLOBAL_SKILLS_DIR = join(homedir(), '.claude', 'skills')
+    const GLOBAL_SKILLS_DIR = instanceSkillsDir()
     const skillDir = join(GLOBAL_SKILLS_DIR, skillName)
     if (!skillDir.startsWith(GLOBAL_SKILLS_DIR + sep)) {
       json(res, { error: 'Skill not found' }, 404)
@@ -542,7 +543,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
       refuseOwner(res, 'Assigning a skill to agents needs the dashboard login (an owner session).')
       return true
     }
-    const GLOBAL_SKILLS_DIR = join(homedir(), '.claude', 'skills')
+    const GLOBAL_SKILLS_DIR = instanceSkillsDir()
     const globalSkillDir = join(GLOBAL_SKILLS_DIR, skillName)
 
     if (!globalSkillDir.startsWith(GLOBAL_SKILLS_DIR + sep)) {
@@ -617,7 +618,7 @@ export async function tryHandleSkills(ctx: RouteContext): Promise<boolean> {
       return true
     }
 
-    const GLOBAL_SKILLS_DIR = join(homedir(), '.claude', 'skills')
+    const GLOBAL_SKILLS_DIR = instanceSkillsDir()
     const skillDir = join(GLOBAL_SKILLS_DIR, skillName)
     if (!skillDir.startsWith(GLOBAL_SKILLS_DIR + sep)) {
       json(res, { error: 'Invalid skill name' }, 400)

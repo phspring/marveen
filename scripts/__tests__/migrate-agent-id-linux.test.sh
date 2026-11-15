@@ -34,6 +34,7 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 INSTALL="$TMP/install"
 mkdir -p "$INSTALL/scripts" "$INSTALL/store"
 cp "$REPO/scripts/migrate-main-agent-id.sh" "$INSTALL/scripts/"
+mkdir -p "$INSTALL/scripts/lib" && cp "$REPO/scripts/lib/claude-home.sh" "$INSTALL/scripts/lib/"  # the instance home helper the script sources
 echo 'BOT_NAME="Test Bot"' > "$INSTALL/.env"
 
 oracle_exec "$INSTALL/store/claudeclaw.db" - <<'SQL'

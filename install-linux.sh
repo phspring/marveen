@@ -1283,19 +1283,26 @@ fi
 # On Ubuntu desktop, umask or prior package installs can leave these dirs
 # world-readable or owned by root, which blocks Claude Code from writing
 # its config/settings files.
-mkdir -p "$HOME/.claude"
-chmod 700 "$HOME/.claude"
-for d in "$HOME/.claude/channels" "$HOME/.claude/skills" "$HOME/.claude/scheduled-tasks"; do
+# The instance's OWN Claude home (docs/sajat-claude-home.md): this install never uses the host user's ~/.claude.
+# Exported as CLAUDE_CONFIG_DIR for the rest of the installer, so every `claude ...` below (plugin install, login
+# check) works on the instance home, and the seeds land there.
+. "$INSTALL_DIR/scripts/lib/claude-home.sh"
+CLAUDE_HOME_DIR="$(claude_home_path "$INSTALL_DIR")" || { echo -e "  ${RED}✗${NC} NESTOR_CLAUDE_HOME is invalid (see above)"; exit 1; }
+mkdir -p "$CLAUDE_HOME_DIR"
+chmod 700 "$CLAUDE_HOME_DIR"
+for d in "$CLAUDE_HOME_DIR/skills" "$CLAUDE_HOME_DIR/scheduled-tasks"; do
   mkdir -p "$d"
   chmod 700 "$d"
 done
+[ -f "$CLAUDE_HOME_DIR/$CLAUDE_HOME_MARKER" ] || printf '{"root": "%s"}\n' "$INSTALL_DIR" > "$CLAUDE_HOME_DIR/$CLAUDE_HOME_MARKER"
+export CLAUDE_CONFIG_DIR="$CLAUDE_HOME_DIR" CLAUDE_HOME_DIR
 
 # Mark the Claude Code first-run wizard as completed so the tmux-spawned
 # `claude --channels ...` process doesn't stop on the theme picker and
 # block the Telegram plugin from ever initializing.
 python3 - <<'PYEOF'
 import json, os, pathlib
-p = pathlib.Path(os.path.expanduser("~/.claude.json"))
+p = pathlib.Path(os.environ["CLAUDE_HOME_DIR"], ".claude.json")
 data = {}
 if p.exists():
     try:
@@ -1319,7 +1326,7 @@ PYEOF
 # but we have to seed it before the first systemd-spawned session.
 python3 - <<'PYEOF'
 import json, os, pathlib
-p = pathlib.Path(os.path.expanduser("~/.claude/settings.json"))
+p = pathlib.Path(os.environ["CLAUDE_HOME_DIR"], "settings.json")
 data = {}
 if p.exists():
     try:
@@ -1910,7 +1917,7 @@ fi
 # valasztott agent slugja kerul be a hardcoded "marveen" helyett. Letezo task
 # konyvtarakat soha nem irjuk felul.
 SCHED_TPL_DIR="$INSTALL_DIR/templates/scheduled-tasks"
-SCHED_TARGET_DIR="$HOME/.claude/scheduled-tasks"
+SCHED_TARGET_DIR="$CLAUDE_HOME_DIR/scheduled-tasks"
 if [ -d "$SCHED_TPL_DIR" ]; then
   mkdir -p "$SCHED_TARGET_DIR"
   for tpl in "$SCHED_TPL_DIR"/*/; do
@@ -2013,7 +2020,7 @@ fi
 
 # Seed bumblebee threat-intel catalogs into ~/.claude/tools/
 BB_SEED_TI="$INSTALL_DIR/seed-scheduled-tasks/bumblebee-hygiene-scan/threat-intel"
-BB_TARGET_TI="$HOME/.claude/tools/bumblebee-threat-intel"
+BB_TARGET_TI="$CLAUDE_HOME_DIR/tools/bumblebee-threat-intel"
 if [ -d "$BB_SEED_TI" ] && [ ! -d "$BB_TARGET_TI" ]; then
   mkdir -p "$BB_TARGET_TI"
   cp "$BB_SEED_TI"/*.json "$BB_TARGET_TI/" 2>/dev/null
@@ -2035,7 +2042,8 @@ if [ -d "$SEED_CONFIG_DIR" ]; then
 fi
 
 # Channel state directory setup
-CHANNEL_DIR="$HOME/.claude/channels/$CHANNEL_PROVIDER"
+# Straight into the install-scoped state dir (#915), never the host ~/.claude/channels.
+CHANNEL_DIR="$INSTALL_DIR/.claude/channels/$CHANNEL_PROVIDER"
 # GROMZONOPROVIDER1108: gromzo keeps no channel state here (no token, no access.json), so no empty dir for it.
 [ "$CHANNEL_PROVIDER" = "gromzo" ] || mkdir -p "$CHANNEL_DIR"
 
@@ -2208,7 +2216,7 @@ fi
 cd "$INSTALL_DIR"
 
 # skill-factory telepitese (self-learning meta-skill)
-SKILLS_DIR="$HOME/.claude/skills"
+SKILLS_DIR="$CLAUDE_HOME_DIR/skills"
 if [ -d "$INSTALL_DIR/skills/skill-factory" ]; then
   mkdir -p "$SKILLS_DIR/skill-factory"
   cp -r "$INSTALL_DIR/skills/skill-factory/"* "$SKILLS_DIR/skill-factory/"

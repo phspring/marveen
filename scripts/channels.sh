@@ -1754,6 +1754,27 @@ elif [ "${MAIN_AUTH_APPLIED:-}" = 1 ]; then
   rm -f "$_ma_alert" 2>/dev/null || true
 fi
 unset _ma_alert
+
+# The instance's OWN Claude home (docs/sajat-claude-home.md). A launch that no mode above gave a config dir used to
+# run with no CLAUDE_CONFIG_DIR, i.e. on the host user's ~/.claude: its skills, CLAUDE.md, history and settings were
+# the host's, and what the bot installed landed there. Now such a launch runs on the instance home, and an instance
+# without one does NOT start (no fallback to ~/.claude): `nestor migrate-claude-home` creates it.
+. "$INSTALL_DIR/scripts/lib/claude-home.sh"
+if [ -z "$CFG_ENV" ]; then
+  if _inst_home="$(claude_home_require "$INSTALL_DIR" 2>>"$INSTALL_DIR/store/channels-failures.log")"; then
+    CFG_ENV="export CLAUDE_CONFIG_DIR=$(sh_single_quote "$_inst_home") && "
+    _MAIN_CFG_DIR="$_inst_home"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh: main-agent instance CLAUDE_CONFIG_DIR=$_inst_home" >> "$INSTALL_DIR/store/channels-failures.log"
+  else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') channels.sh: ERROR the instance has no own Claude home -- the main agent is NOT started on the host ~/.claude. Run: bin/nestor migrate-claude-home" >> "$INSTALL_DIR/store/channels-failures.log"
+    echo "channels.sh: no own Claude home for this instance; run bin/nestor migrate-claude-home" >&2
+    exit 1
+  fi
+  unset _inst_home
+fi
+# Every launch carries the instance home in the environment: the scripts and hooks the bot runs read it from there.
+if _nch="$(claude_home_require "$INSTALL_DIR" 2>/dev/null)"; then CFG_ENV="${CFG_ENV}export NESTOR_CLAUDE_HOME=$(sh_single_quote "$_nch") && "; fi
+unset _nch
 _tmux_set_auth_globals
 
 # Layer 1 of CHANNELSAUTHRACE923, WITHOUT the secret in any argv (TOKENARGV929).

@@ -1,3 +1,4 @@
+import { instanceSkillsDir } from '../claude-home.js'
 // Fleet export / import.
 //
 // Builds a single portable JSON snapshot of fleet content (agents, skills,
@@ -771,7 +772,7 @@ export function exportFleet(options: { vaultPassword?: string } = {}): ExportedF
 
   const mainAgent = exportMainAgent(bindingLookup, withSecrets)
   const agents = listAgentNames().map(name => exportAgent(name, bindingLookup, withSecrets))
-  const skills = listSkillsInDir(join(homedir(), '.claude', 'skills'))
+  const skills = listSkillsInDir(instanceSkillsDir())
   const scheduledTasks = exportScheduledTasks()
 
   // Export ALL memories and daily_logs across every agent_id. A retracted memory
@@ -1198,7 +1199,7 @@ export function importFleet(
   // -------------------------------------------------------------------------
   const db = getDb()
   const tracker: WriteTracker = { files: [], dirs: [] }
-  const globalSkillsDir = join(homedir(), '.claude', 'skills')
+  const globalSkillsDir = instanceSkillsDir()
 
   try {
     // 0. Main agent files (PROJECT_ROOT level -- main agent persona, settings, channel pairing)

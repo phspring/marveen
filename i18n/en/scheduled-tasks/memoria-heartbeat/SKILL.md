@@ -53,13 +53,13 @@ First decide with the 3 questions below:
 
 Steps:
 1. Look for an existing skill in both the global and the agent-specific index:
-   - Global: `~/.claude/skills/.skill-index.md` (text search)
+   - Global: `$CLAUDE_CONFIG_DIR/skills/.skill-index.md` (text search)
    - Agent-specific (if there is one): `./.claude/skills/.skill-index.md` in your working folder (text search)
    - The agent-specific index contains both levels, so if it exists, it is enough to look at that one.
 2. If there is a relevant skill: PATCH (replace only the changed part, not the whole file).
    - Prefer the `## Pitfalls` section if there was an error/recovery.
    - The `## Procedure` section if the process changed.
-   - If the relevant skill is GLOBAL (under `~/.claude/skills/`), or you are the main agent (every agent sees the project root's `.claude/skills` folder too), do not fix it in place: send the full fixed text as a proposal (`POST /api/skills/propose`, see point 3).
+   - If the relevant skill is GLOBAL (under `$CLAUDE_CONFIG_DIR/skills/`), or you are the main agent (every agent sees the project root's `.claude/skills` folder too), do not fix it in place: send the full fixed text as a proposal (`POST /api/skills/propose`, see point 3).
 3. If there is NO relevant skill: create a new one. The main agent, and a skill meant for every agent, must NOT be made with this block
    (the main agent's working directory is the project root, and every agent sees its `.claude/skills` folder):
    send that one by the proposal route after the block.
@@ -85,7 +85,7 @@ Steps:
    - ...
    EOF
    ```
-   This is YOUR OWN folder (your working directory's `.claude/skills`). If the skill is meant for every agent, do not write it into `~/.claude/skills/`: send the full SKILL.md to the `POST /api/skills/propose` endpoint (`{"name": ..., "skill_md": ..., "reason": ...}`, with the dashboard token), and it waits in quarantine until the owner approves it. The main agent always sends it this way.
+   This is YOUR OWN folder (your working directory's `.claude/skills`). If the skill is meant for every agent, do not write it into `$CLAUDE_CONFIG_DIR/skills/`: send the full SKILL.md to the `POST /api/skills/propose` endpoint (`{"name": ..., "skill_md": ..., "reason": ...}`, with the dashboard token), and it waits in quarantine until the owner approves it. The main agent always sends it this way.
 4. Linter on the affected skill (MANDATORY, after the skill action):
    ```bash
    node {{INSTALL_DIR}}/scripts/skill-lint.mjs .claude/skills/<NEV>     # for a proposal, on the draft: .claude/skill-javaslat

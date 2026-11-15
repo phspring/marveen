@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Readable, Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { makeInstanceHome } from './helpers/instance-home.js'
 
 const H = vi.hoisted(() => ({ root: '', fleetExportSawZipEnd: undefined as boolean | undefined, queued: 0 }))
 const tmpRoot = mkdtempSync(join(tmpdir(), 'skills-dir-queue-'))
@@ -16,6 +17,8 @@ H.root = tmpRoot
 const fakeHome = join(tmpRoot, 'home')
 const realHome = process.env.HOME
 process.env.HOME = fakeHome
+// The global skill root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude/skills.
+process.env.NESTOR_CLAUDE_HOME = makeInstanceHome(join(fakeHome, 'inst-home'))
 const bin = join(tmpRoot, 'bin')
 const log = join(tmpRoot, 'tool.log')
 
@@ -43,7 +46,7 @@ vi.mock('../web/fleet-transfer.js', () => ({
     return { data: '{}', exportedAt: '2026-10-25T00:00:00.000Z' }
   },
   importFleet: () => {
-    const dir = join(`${H.root}/home`, '.claude', 'skills', 's5')
+    const dir = join(`${H.root}/home`, 'inst-home', 'skills', 's5')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'SKILL.md'), '# s5\n')
     return { applied: true }
@@ -118,7 +121,7 @@ async function call(handler: typeof tryHandleSkills, method: string, path: strin
 const SESSION = { kind: 'session', user: 'owner' } as const
 
 function makeSkill(name: string) {
-  const dir = join(fakeHome, '.claude', 'skills', name)
+  const dir = join(fakeHome, 'inst-home', 'skills', name)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'SKILL.md'), `# ${name}\n`)
 }
@@ -158,7 +161,7 @@ describe('skill directory operations run one at a time', () => {
     expect(e.body.toString()).toBe('ZIPDATA')
     expect(d.status).toBe(200)
     expect(readLog()).toContain('zip end saw=yes')
-    expect(existsSync(join(fakeHome, '.claude', 'skills', 's1'))).toBe(false)
+    expect(existsSync(join(fakeHome, 'inst-home', 'skills', 's1'))).toBe(false)
   })
 
   it('an approval issued while the export zips installs after the zip ended', async () => {
@@ -174,7 +177,7 @@ describe('skill directory operations run one at a time', () => {
     expect(e.status).toBe(200)
     expect(a.status).toBe(200)
     expect(readLog()).toContain('zip end saw=no')
-    expect(existsSync(join(fakeHome, '.claude', 'skills', 's2', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(fakeHome, 'inst-home', 'skills', 's2', 'SKILL.md'))).toBe(true)
   })
 
   it('a delete queued behind an approval of the same skill sees it installed', async () => {
@@ -196,7 +199,7 @@ describe('skill directory operations run one at a time', () => {
     const [, a, d] = await Promise.all([exp, ap, del])
     expect(a.status).toBe(200)
     expect(d.status).toBe(200)
-    expect(existsSync(join(fakeHome, '.claude', 'skills', 's4'))).toBe(false)
+    expect(existsSync(join(fakeHome, 'inst-home', 'skills', 's4'))).toBe(false)
   })
 
   it('a failed export does not wedge the delete queued behind it', async () => {
@@ -210,7 +213,7 @@ describe('skill directory operations run one at a time', () => {
     expect(e.status).toBe(500)
     expect(JSON.parse(e.body.toString())).toEqual({ error: 'Export failed' })
     expect(d.status).toBe(200)
-    expect(existsSync(join(fakeHome, '.claude', 'skills', 's3'))).toBe(false)
+    expect(existsSync(join(fakeHome, 'inst-home', 'skills', 's3'))).toBe(false)
   })
 
   it('a delete of a missing skill is still 404', async () => {
@@ -231,7 +234,7 @@ describe('skill directory operations run one at a time', () => {
     expect(e.status).toBe(200)
     expect(i.status).toBe(200)
     expect(readLog()).toContain('zip end saw=no')
-    expect(existsSync(join(fakeHome, '.claude', 'skills', 's5', 'SKILL.md'))).toBe(true)
+    expect(existsSync(join(fakeHome, 'inst-home', 'skills', 's5', 'SKILL.md'))).toBe(true)
   })
 
   it('a fleet export issued while the export zips reads the skills after the zip ended', async () => {

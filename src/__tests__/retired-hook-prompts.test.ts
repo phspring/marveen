@@ -7,7 +7,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureAgentHooks, upgradeRetiredHookPrompts, upgradePreCompactRecipesToHelper, readRetiredHookPrompts, resolveTemplatePlaceholders, upgradeTaskStateHeaderInHookPrompts } from '../web/agent-scaffold.js'
+import { ensureAgentHooks, upgradeRetiredHookPrompts, upgradePreCompactRecipesToHelper, readRetiredHookPrompts, resolveTemplatePlaceholders, upgradeTaskStateHeaderInHookPrompts, retiredHookPromptsFor } from '../web/agent-scaffold.js'
+import { PRECOMPACT_PROMPT_EN_TPL } from '../web/agent-scaffold-en.js'
 import { PROJECT_ROOT } from '../config.js'
 
 type Hooks = Record<string, Array<{ hooks?: Array<Record<string, unknown>> }>>
@@ -17,10 +18,14 @@ const agentPrompt = (hooks: Hooks | undefined, event: string): unknown =>
 const TPL = load('settings.json.template') as { hooks: Hooks }
 const RETIRED = load('retired-hook-prompts.json') as { PreCompact: string[] }
 const CURRENT = agentPrompt(TPL.hooks, 'PreCompact') as string
-// Newest first: the prompt before SKILL_QUARANTINE (SKILLAPPROVALOFF1101), the one before PR-C, the review-era one.
-const PRE_SWITCH = RETIRED.PreCompact[0]!
-const PRE_PRC = RETIRED.PreCompact[1]!
-const REVIEW_ERA = RETIRED.PreCompact[2]!
+// Newest first: the prompt before the instance home (docs/sajat-claude-home.md: it sent global skills to
+// ~/.claude/skills/), the one before SKILL_QUARANTINE (SKILLAPPROVALOFF1101), the one before PR-C, the review-era one.
+const PRE_HOME = RETIRED.PreCompact[0]!
+const PRE_SWITCH = RETIRED.PreCompact[1]!
+const PRE_PRC = RETIRED.PreCompact[2]!
+const REVIEW_ERA = RETIRED.PreCompact[3]!
+const HOME_OLD = '~/.claude/skills/'
+const HOME_NEW = '$CLAUDE_CONFIG_DIR/skills/'
 const QUARANTINE_OLD = 'A gazda jóváhagyásáig karanténban vár; ha a név már él, cserejavaslat lesz, és jóváhagyáskor a régi változat mentésre kerül.'
 const QUARANTINE_NEW = 'Hogy azonnal élesedik (a scan és az audit akkor is lefut), vagy a gazda jóváhagyásáig karanténban vár, azt a SKILL_QUARANTINE kapcsoló dönti el, a válasz live mezője megmondja; ha a név már él, cserejavaslat lesz, és élesedéskor a régi változat mentésre kerül.'
 const fixture = (f: string) => readFileSync(join(PROJECT_ROOT, 'src', '__tests__', 'fixtures', f), 'utf-8')
@@ -86,6 +91,33 @@ describe('upgradeRetiredHookPrompts', () => {
   })
 })
 
+describe('the instance-home retirement (docs/sajat-claude-home.md)', () => {
+  it('the prompt before it named ~/.claude/skills/, the current one names only $CLAUDE_CONFIG_DIR/skills/', () => {
+    expect(PRE_HOME).toContain(HOME_OLD)
+    expect(CURRENT).not.toContain('~/.claude/')
+    expect(CURRENT).toContain(HOME_NEW)
+  })
+  it('an agent still carrying that stock prompt gets the current one (Hungarian list)', () => {
+    const existing: Hooks = { PreCompact: [{ hooks: [{ type: 'agent', prompt: PRE_HOME, timeout: 180 }] }] }
+    const all = readRetiredHookPrompts()
+    expect(upgradeRetiredHookPrompts(existing, TPL.hooks, retiredHookPromptsFor(all, 'hu'))).toBe(true)
+    expect(existing.PreCompact[0].hooks![0].prompt).toBe(CURRENT)
+  })
+  it('an English agent carrying the previous English stock prompt gets PRECOMPACT_PROMPT_EN_TPL (en:PreCompact)', () => {
+    const all = readRetiredHookPrompts()
+    const oldEn = (all['en:PreCompact'] ?? [])[0]
+    expect(oldEn).toContain(HOME_OLD)
+    expect(PRECOMPACT_PROMPT_EN_TPL).not.toContain('~/.claude/')
+    const enTpl = { PreCompact: [{ hooks: [{ type: 'agent', prompt: PRECOMPACT_PROMPT_EN_TPL, timeout: 180 }] }] }
+    const existing: Hooks = { PreCompact: [{ hooks: [{ type: 'agent', prompt: resolveTemplatePlaceholders(oldEn), timeout: 180 }] }] }
+    expect(upgradeRetiredHookPrompts(existing, enTpl, retiredHookPromptsFor(all, 'en'))).toBe(true)
+    expect(existing.PreCompact[0].hooks![0].prompt).toBe(PRECOMPACT_PROMPT_EN_TPL)
+    // and the Hungarian list never upgrades an English prompt
+    const hu: Hooks = { PreCompact: [{ hooks: [{ type: 'agent', prompt: resolveTemplatePlaceholders(oldEn), timeout: 180 }] }] }
+    expect(upgradeRetiredHookPrompts(hu, TPL.hooks, retiredHookPromptsFor(all, 'hu'))).toBe(false)
+  })
+})
+
 describe('the shipped retired list', () => {
   it('holds earlier stock PreCompact prompts, each once as shipped, and not the current one', () => {
     expect(typeof CURRENT).toBe('string')
@@ -102,7 +134,9 @@ describe('the shipped retired list', () => {
     expect(PRE_SWITCH).toContain(QUARANTINE_OLD)
     expect(CURRENT).not.toContain(QUARANTINE_OLD)
     expect(CURRENT).toContain(QUARANTINE_NEW)
-    expect(PRE_SWITCH.replace(QUARANTINE_OLD, QUARANTINE_NEW)).toBe(CURRENT)
+    // ...the prompt before the instance home; the current one is that with the global skill folder moved
+    expect(PRE_SWITCH.replace(QUARANTINE_OLD, QUARANTINE_NEW)).toBe(PRE_HOME)
+    expect(PRE_HOME.split(HOME_OLD).join(HOME_NEW)).toBe(CURRENT)
     // and the PR-C line pass of the entry before it gives exactly the prompt before the switch
     expect(afterHelperPass(PRE_PRC)).toBe(PRE_SWITCH)
   })

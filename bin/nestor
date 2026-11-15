@@ -4,6 +4,7 @@
 # its logs, its tmux server. Two installs side by side each have their own `nestor`, and neither can touch the other.
 #
 #   nestor init [--agent N] [--system N] [--port P] name a new install (default nestor); never changes a key already set
+#   nestor migrate-claude-home [--dry-run]          give the install its OWN Claude home (never the host ~/.claude)
 #   nestor info | doctor | register | unregister   what this instance owns / does it share anything / the machine's list
 #   nestor start|stop|restart [dashboard|channels] the service units of this install (pid-file mode when it has none)
 #   nestor status                                  units, pid, and whether the dashboard answers on ITS port
@@ -201,7 +202,7 @@ WantedBy=default.target"
 
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 case "$cmd" in
-  info|doctor|init|register|unregister) cli "$cmd" "$ROOT" "$@" ;;
+  info|doctor|init|register|unregister|migrate-claude-home) cli "$cmd" "$ROOT" "$@" ;;
   start|stop|restart) act "$cmd" "${1:-all}" ;;
   status) status ;;
   logs)
@@ -214,6 +215,6 @@ case "$cmd" in
   attach) tmux_here attach -t "=${MAIN_ID}-channels" ;;
   install-service) install_service "${1:-}" ;;
   node) need_node; exec "$NODE_BIN" "$@" ;;
-  ""|help|-h|--help) sed -n '2,17p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  ""|help|-h|--help) sed -n '2,18p' "$SELF" | sed 's/^# \{0,1\}//' ;;
   *) echo "nestor: unknown command '$cmd' (try: nestor help)" >&2; exit 2 ;;
 esac

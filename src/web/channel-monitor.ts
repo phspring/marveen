@@ -1,4 +1,5 @@
 import { tmuxStderr } from './tmux-stderr.js'
+import { instanceClaudeHome, requireInstanceClaudeHome, NoInstanceHomeError } from '../claude-home.js'
 import { writeMainExtraPluginsSettings } from './main-extra-plugins-settings.js'
 import { decideSkipTrace, decideMenuPassTrace, type SkipTraceState } from './monitor-trace.js'
 import { releaseOwnRespawnStamp, type OwnRespawnStamp } from './respawn-stamp-release.js'
@@ -1140,6 +1141,19 @@ function mainLaunchPluginIds(provider: { type: string; pluginId: string }): stri
   return [...(mainPrimaryConfigured(provider.type) ? [provider.pluginId] : []), ...readExtraChannelPluginIds()]
 }
 
+/** True when the instance has its own Claude home (src/claude-home.ts); otherwise logs why the main session is NOT
+ *  respawned. A respawn without it would run with no CLAUDE_CONFIG_DIR, i.e. on the host user's ~/.claude. */
+export function mainRespawnHomeReady(): boolean {
+  try {
+    requireInstanceClaudeHome()
+    return true
+  } catch (err) {
+    if (!(err instanceof NoInstanceHomeError)) throw err
+    logger.error({ home: err.home }, `main session NOT respawned: ${err.message}`)
+    return false
+  }
+}
+
 export function buildMainSessionRespawnCmd(opts: {
   claudePath: string
   pluginId: string
@@ -1161,10 +1175,12 @@ export function buildMainSessionRespawnCmd(opts: {
    * plus the fleet setup-token (parity with channels.sh CFG_ENV, the plain
    * flotta dir); null with `fleetToken` => export the token alone, which is
    * what keeps a wizard-entered token reaching a respawned main session at
-   * all (2026-07-15 bootcamp, bug 2 latent path); null with no token => the
-   * shared root, unchanged for installs with isolation off.
+   * all (2026-07-15 bootcamp, bug 2 latent path). null => CLAUDE_CONFIG_DIR is the
+   * instance's own Claude home (never the host ~/.claude), plus the token when there is one.
    */
   config: MainConfigDecision
+  /** The instance's own Claude home for a launch no mode gave a dir; default instanceClaudeHome(). */
+  instanceHome?: string
   /**
    * Secondary plugin ids to co-listen on alongside `pluginId`, from
    * readExtraChannelPluginIds(). Omitting them is what silently half-mutes every
@@ -1274,9 +1290,14 @@ export function buildMainSessionRespawnCmd(opts: {
           : opts.config.tokenSecretId
             ? [`&& export CLAUDE_CONFIG_DIR=${shSingleQuote(opts.config.isolatedConfigDir)} && _plan_token="$(node '${RESOLVE_PLAN_TOKEN_PATH}' '${opts.config.tokenSecretId}' '${FLEET_OAUTH_TOKEN_PATH}' '${CHANNELS_FAILURES_LOG_PATH}')" && export CLAUDE_CODE_OAUTH_TOKEN="$_plan_token"`]
             : [`&& export CLAUDE_CONFIG_DIR=${shSingleQuote(opts.config.isolatedConfigDir)} && export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')"`])
-      : opts.config.fleetToken
-        ? [`&& export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')"`]
-        : []),
+      // No config dir from any mode: the INSTANCE's own Claude home (src/claude-home.ts), never the host ~/.claude
+      // (an unset CLAUDE_CONFIG_DIR). The caller has checked that the home exists (requireMainRespawnHome).
+      : [
+          `&& export CLAUDE_CONFIG_DIR=${shSingleQuote(opts.instanceHome ?? instanceClaudeHome())}`,
+          ...(opts.config.fleetToken ? [`&& export CLAUDE_CODE_OAUTH_TOKEN="$(cat '${FLEET_OAUTH_TOKEN_PATH}')"`] : []),
+        ]),
+    // The instance's own home for every script/hook the main agent runs (docs/sajat-claude-home.md).
+    `&& export NESTOR_CLAUDE_HOME=${shSingleQuote(opts.instanceHome ?? instanceClaudeHome())}`,
     // MAINAUTH1107: the post-file right AFTER the config branch (a static piece: no mode logic in this builder).
     `&& { [ ! -f ${shSingleQuote(PANE_AUTH_POST_PATH)} ] || . ${shSingleQuote(PANE_AUTH_POST_PATH)}; }`,
     // GROMZOMAINAGENT1106: the plugin names itself with MXD_AGENT (main-gromzo-launch.ts).
@@ -1363,6 +1384,8 @@ export function respawnMainSessionFresh(): void {
     } catch (err) {
       logger.warn({ err }, 'respawnMainSessionFresh: detached-claude reap failed (continuing)')
     }
+    // No own Claude home -> no respawn at all: it would otherwise come up on the host ~/.claude.
+    if (!mainRespawnHomeReady()) return
     ensureSharedClaudeOnboarded()
 
     const claudeCmd = buildMainSessionRespawnCmd({
@@ -1472,6 +1495,8 @@ export async function resumeMarveenSession(opts: { byMonitor?: boolean } = {}): 
     // A respawn onto the shared ~/.claude parks on the first-run "Select login
     // method" picker when ~/.claude.json lost hasCompletedOnboarding (2026-07-15
     // bootcamp mass-"/login"); idempotent re-seed before every respawn.
+    // No own Claude home -> no respawn at all: it would otherwise come up on the host ~/.claude.
+    if (!mainRespawnHomeReady()) return false
     ensureSharedClaudeOnboarded()
 
     const claudeCmd = buildMainSessionRespawnCmd({
@@ -1784,6 +1809,8 @@ function respawnMarveenSessionFresh(): boolean {
   const endRespawn = beginMainRespawn()
   try {
     // Same first-run-picker guard as resumeMarveenSession.
+    // No own Claude home -> no respawn at all: it would otherwise come up on the host ~/.claude.
+    if (!mainRespawnHomeReady()) return false
     ensureSharedClaudeOnboarded()
     const claudeCmd = buildMainSessionRespawnCmd({
       claudePath: claudeBin(),

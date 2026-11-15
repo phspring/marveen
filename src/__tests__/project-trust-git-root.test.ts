@@ -161,8 +161,10 @@ describe('gitToplevelFor (#1904)', () => {
 
 describe('the launch call site (#1904)', () => {
   it('startAgentProcess passes no override, so the install-root lookup runs on every start', () => {
-    const call = "stampProjectTrustForDir(\n      claudeConfigDir ? join(claudeConfigDir, '.claude.json') : join(homedir(), '.claude.json'),\n      dir,\n    )"
-    expect(AGENT_PROCESS).toContain(call)
+    // The target is the config dir the session really uses; with no own dir that is the instance home now
+    // (ownDotClaude), never the host ~/.claude.json. Still exactly two arguments: no trust-key override.
+    expect(AGENT_PROCESS).toContain('stampProjectTrustForDir(ownDotClaude, dir)')
+    expect(AGENT_PROCESS).toContain("const ownDotClaude = join(claudeConfigDir, '.claude.json')")
     expect(AGENT_PROCESS).toContain('toplevel: string | null = installRootTrustKey(),')
     expect(AGENT_PROCESS).toContain('root: string = PROJECT_ROOT,')
   })

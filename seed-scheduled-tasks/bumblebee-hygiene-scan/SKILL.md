@@ -26,7 +26,7 @@ If the binary is missing (fresh machine without Go), gracefully skip with an inf
 
 2. **Locate threat-intel catalogs**:
 ```bash
-BB_CATALOG="$HOME/.claude/tools/bumblebee-threat-intel"
+BB_CATALOG="$CLAUDE_CONFIG_DIR/tools/bumblebee-threat-intel"
 if [ ! -d "$BB_CATALOG" ] || [ -z "$(ls -A "$BB_CATALOG" 2>/dev/null)" ]; then
   # Try seeded catalogs from install dir
   SEED_CATALOG="{{INSTALL_DIR}}/seed-scheduled-tasks/bumblebee-hygiene-scan/threat-intel"
@@ -106,7 +106,7 @@ fi
 ```
 
 ## Pitfalls
-- Findings ONLY appear with `--exposure-catalog` flag (otherwise always 0). The catalogs live in `~/.claude/tools/bumblebee-threat-intel/`.
+- Findings ONLY appear with `--exposure-catalog` flag (otherwise always 0). The catalogs live in `$CLAUDE_CONFIG_DIR/tools/bumblebee-threat-intel/`.
 - **The scan is fail-open on the catalog**: with a mistyped catalog path or an empty catalog dir the output is record-type-identical to a healthy run, and nothing in it says the catalog did not load. A zero without the step-5 positive control is a number nobody has checked.
 - If Go is not available (< 1.25 or not installed), the binary cannot be built. The task must GRACEFULLY SKIP, not crash.
 - 0 findings does NOT mean absolute safety, only that the threats in the currently loaded catalogs are not present. Do not quote a fixed threat count from memory -- it goes stale (a "6 threats" figure survived here while the real catalogs held 12 files / 1099 entries); if the number is needed, count it from the loaded catalog files' `entries` arrays.

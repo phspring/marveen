@@ -24,7 +24,7 @@ Minden projekt és részfeladat KÖTELEZŐEN kanban-kártyán keresztül menedzs
    - Beakadt taskokat (>24h in_progress mozgás nélkül) számon kéri az assignee-nél inter-agent message-szel
    - Új delegálatlan/nélküli kártyákat jelzi az orchestratornak
 5. **Heti riport**: az orchestrator összegzi a board-állapotot Telegramon a usernek (minden péntek).
-6. **Meta-task NEM kerül kanbanra**: ami folyamatos monitor / scheduled-task / mindenkori `/loop`-ciklus (pl. "GitHub PR monitor", "Reggeli napindító"), ne legyen kanban-kártya -- mert a kanban-audit beakadtnak fogja jelölni. Ezeket `~/.claude/scheduled-tasks/<név>/` mappában tartsuk, vagy a `~/.claude/scheduled-tasks.json`-ben. (Sub-agent feedback alapján: a pr-figyelés scheduled-task-ja kezeli, nem kanban-kártya.)
+6. **Meta-task NEM kerül kanbanra**: ami folyamatos monitor / scheduled-task / mindenkori `/loop`-ciklus (pl. "GitHub PR monitor", "Reggeli napindító"), ne legyen kanban-kártya -- mert a kanban-audit beakadtnak fogja jelölni. Ezeket `$CLAUDE_CONFIG_DIR/scheduled-tasks/<név>/` mappában tartsuk, vagy a `$CLAUDE_CONFIG_DIR/scheduled-tasks.json`-ben. (Sub-agent feedback alapján: a pr-figyelés scheduled-task-ja kezeli, nem kanban-kártya.)
 
 ## Eljárás
 
@@ -36,7 +36,7 @@ Minden projekt és részfeladat KÖTELEZŐEN kanban-kártyán keresztül menedzs
 
 3. **Inter-agent kickoff**: küldj részletes task-listát az ágenseknek inter-agent msg-vel. Külön a marketing agent (üzleti/marketing) és a backend dev agent (technikai/fejlesztés). Brief mindkét oldalt, és figyelmezesd hogy NEM auto-pull (csak akkor dolgozik amikor pingelsz).
 
-4. **Heti riport scheduled task**: hozz létre `~/.claude/scheduled-tasks/<projekt>-weekly-report.md` cron-os jelentés-küldővel. Péntek 17:00, kanban státusz + ágens-haladás.
+4. **Heti riport scheduled task**: hozz létre `$CLAUDE_CONFIG_DIR/scheduled-tasks/<projekt>-weekly-report.md` cron-os jelentés-küldővel. Péntek 17:00, kanban státusz + ágens-haladás.
 
 5. **HOT memória**: mentsd el a projekt jelen állapotát (parent + sub kártya ID-k, scope, deadlines).
 
@@ -203,7 +203,7 @@ Megjegyzés: a `POST /api/agents/<name>/restart` NEM létezik (404 Not Found). K
 
 - **Iteratív design-polish: push commit a meglévő nyitott PR-re, NE új PR**: a user designer-jellegű review-zik kép-feedback-ekkel. 6+ feedback-pont jött 30 perc alatt, mindegyik kis textual/CSS change. **Pattern**: amíg a PR mergelve nincs (de a user még design-OK-t ad), MINDEN újabb feedback-et `git commit && git push` a NYITOTT PR branch-re, NEM új PR. Egy feedback = 1 commit = 1-2 perces preview-rebuild. A merge után már új PR kell. Konkrét anti-pattern: ha 6 design-fix mind külön PR, az 6 preview-build + 6 review-round + 6 merge -- heavy ceremony. Bundle them on the SAME open PR amíg lehet.
 
-- **Coordinator-skill-look-up KÖTELEZŐ mielőtt a usert kérdezed credential-ért / auth-ért / hidden-config-helyért**: a sub-agent átdobta a deploy-t az orchestratornak, mert a sub-agent context-jébe nem fért be. Az orchestrator lokálisan futtatta a login-t (TTY-fail), végigjárt config fájlokat -- sehol nem talált tokent. Felesleges user-kérdezés. VÉGÜL kiderült: a releváns skill ELEVE explicit elmondja a megoldást. **Orchestrator-szabály**: mielőtt a usert zaklatod auth/credential/config-kérdéssel, EREDETI lépés: `grep -i <topic> ~/.claude/skills/*/SKILL.md | head -5` -- ha találat, olvasd be a skillt teljes egészében ELŐSZÖR.
+- **Coordinator-skill-look-up KÖTELEZŐ mielőtt a usert kérdezed credential-ért / auth-ért / hidden-config-helyért**: a sub-agent átdobta a deploy-t az orchestratornak, mert a sub-agent context-jébe nem fért be. Az orchestrator lokálisan futtatta a login-t (TTY-fail), végigjárt config fájlokat -- sehol nem talált tokent. Felesleges user-kérdezés. VÉGÜL kiderült: a releváns skill ELEVE explicit elmondja a megoldást. **Orchestrator-szabály**: mielőtt a usert zaklatod auth/credential/config-kérdéssel, EREDETI lépés: `grep -i <topic> $CLAUDE_CONFIG_DIR/skills/*/SKILL.md | head -5` -- ha találat, olvasd be a skillt teljes egészében ELŐSZÖR.
 
 - **Sub-agent batch-task subset-incomplete detection**: amikor egy sub-agent batch-feladatot kap (pl. „regeneráld mind a 4 képet"), és „kész"-t jelez, NE bízz a self-reporton -- verify hogy MIND az N elem ténylegesen frissült. **Verify-pattern**: minden batch-feladat után `ls -lh <output_dir> | awk` időbélyeg-ellenőrzés vs. „delegálás-time + N percek". Anti-pattern: csak a sub-agent message tartalmára támaszkodni („ok, kész").
 

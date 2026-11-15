@@ -28,8 +28,9 @@ const INTENDED: ReadonlyArray<readonly [string, string, string, number?]> = [
     '   # A SAJÁT csatornád configja a munkakönyvtáradban van (<cwd>/.claude/channels/...: a Főnöknél a projekt gyökere, sub-ágensnél az agents/<név> mappa).',
     "   # YOUR OWN channel's config is in your working directory (<cwd>/.claude/channels/...: the project root for the main agent, the agents/<name> folder for a sub-agent)."],
   ['templates/en/CLAUDE.md.template',
-    '   # A $HOME/.claude/channels csak tartalék: Marveen-telepítésben ott nincs ilyen fájl, ezért a vak $HOME-olvasás hamis "NEM"-et vagy hibát ad.',
-    '   # $HOME/.claude/channels is only a fallback: a Marveen install has no such file there, so a blind $HOME read gives a false "NEM" (no) or an error.'],
+    // docs/sajat-claude-home.md: the host channel fallback is gone from the recipe (only the install's own state counts).
+    '   # Csak a telepítés saját állapota számít: a host $HOME/.claude-ját ez a telepítés nem használja.',
+    "   # Only the install's own state counts: this install never uses the host $HOME/.claude."],
   // PERSONAESC1107 (Samu 72845): the placeholders and example values in the recipes, translated (the agent fills them in).
   ['templates/en/CLAUDE.md.template',
     "CATEGORY \"kulcsszó1, kulcsszó2\" mem.txt",

@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { instanceSkillsDir } from '../../claude-home.js'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { logger } from '../../logger.js'
@@ -18,7 +19,7 @@ import type { RouteContext } from './types.js'
 // non-existent agents/marveen/ folder so we must branch here.
 function skillsRootFor(name: string): string {
   return name === MAIN_AGENT_ID
-    ? join(homedir(), '.claude', 'skills')
+    ? instanceSkillsDir()
     : join(agentDir(name), '.claude', 'skills')
 }
 function agentExistsFor(name: string): boolean {
@@ -122,7 +123,7 @@ export async function tryHandleAgentsSkills(ctx: RouteContext): Promise<boolean>
   if (skillsMatch && method === 'GET') {
     const name = decodeURIComponent(skillsMatch[1])
     if (!agentExistsFor(name)) { json(res, { error: 'Agent not found' }, 404); return true }
-    const globalRoot = join(homedir(), '.claude', 'skills')
+    const globalRoot = instanceSkillsDir()
     let skills: AgentSkill[]
     if (name === MAIN_AGENT_ID) {
       // The main agent's skill root IS the global ~/.claude/skills dir; these

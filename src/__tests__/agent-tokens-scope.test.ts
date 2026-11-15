@@ -67,6 +67,8 @@ const scratch = (() => {
   const home = join(root, 'home')
   mkdirSync(home, { recursive: true })
   process.env.HOME = home
+  // The scheduled tasks live in the instance's own Claude home now (src/claude-home.ts), resolved at import too.
+  process.env.NESTOR_CLAUDE_HOME = join(home, '.claude-home')
   process.env.NODE_ENV = 'test'
   return { root, home }
 })()

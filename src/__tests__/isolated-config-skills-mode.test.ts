@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { useInstanceHome } from './helpers/instance-home.js'
 import { join } from 'node:path'
 
 const state = vi.hoisted(() => ({ lib: '', rows: [] as object[] }))
@@ -27,6 +28,7 @@ const probeDir = join(PROJECT_ROOT, 'agents', PROBE)
 const cfgSkills = join(probeDir, '.claude-config', 'skills')
 
 let fakeHome: string
+let restoreHome: () => void = () => {}
 let realHome: string | undefined
 let sharedSkills: string
 
@@ -42,9 +44,10 @@ beforeEach(() => {
   realHome = process.env.HOME
   fakeHome = mkdtempSync(join(tmpdir(), 'skillsmode-'))
   process.env.HOME = fakeHome
-  mkdirSync(join(fakeHome, '.claude'), { recursive: true })
-  writeFileSync(join(fakeHome, '.claude', 'settings.json'), '{}')
-  sharedSkills = join(fakeHome, '.claude', 'skills')
+  // The shared root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude.
+  restoreHome = useInstanceHome(join(fakeHome, 'inst-home'))
+  writeFileSync(join(fakeHome, 'inst-home', 'settings.json'), '{}')
+  sharedSkills = join(fakeHome, 'inst-home', 'skills')
   mkdirSync(join(sharedSkills, 'old-skill'), { recursive: true })
   writeFileSync(join(sharedSkills, 'old-skill', 'SKILL.md'), 'old\n')
   state.lib = join(fakeHome, 'library')
@@ -56,6 +59,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   process.env.HOME = realHome
+  restoreHome()
   rmSync(fakeHome, { recursive: true, force: true })
   rmSync(probeDir, { recursive: true, force: true })
 })

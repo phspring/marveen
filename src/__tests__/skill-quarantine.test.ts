@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import type { RouteContext } from '../web/routes/types.js'
+import { makeInstanceHome } from './helpers/instance-home.js'
 
 const tmpRoot = mkdtempSync(join(tmpdir(), 'skill-quarantine-'))
 const HOME = join(tmpRoot, 'home')
@@ -15,6 +16,8 @@ const STORE = join(tmpRoot, 'store')
 const AGENTS = join(tmpRoot, 'agents')
 const ORIG_HOME = process.env.HOME
 process.env.HOME = HOME
+// The global skill root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude/skills.
+process.env.NESTOR_CLAUDE_HOME = makeInstanceHome(join(HOME, 'inst-home'))
 
 // SKILLAPPROVALOFF1101: this file pins the quarantine ON (the hold for approval); the OFF path is skill-quarantine-switch.test.ts.
 vi.mock('../settings-store.js', async (orig) => {
@@ -47,7 +50,7 @@ const { tryHandleSkills } = await import('../web/routes/skills.js')
 const { tryHandleAgentsSkills } = await import('../web/routes/agents-skills.js')
 const { MAIN_AGENT_ID } = await import('../config.js')
 
-const GLOBAL = join(HOME, '.claude', 'skills')
+const GLOBAL = join(HOME, 'inst-home', 'skills')
 const PENDING = join(STORE, 'skills-pending')
 const AGENT = 'zz-sub'
 const AGENT_SKILLS = join(AGENTS, AGENT, '.claude', 'skills')

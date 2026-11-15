@@ -314,7 +314,10 @@ fi
 # Rewrite ~/.claude/scheduled-tasks/*/task-config.json agent fields: the
 # scheduler routes by this name, and "marveen" now targets a non-existent
 # session on non-default installs.
-SCHED_DIR="$HOME/.claude/scheduled-tasks"
+# The instance's own Claude home (docs/sajat-claude-home.md), never the host ~/.claude: the registry CLI resolves the
+# tasks there too, so both must name the same dir.
+. "$INSTALL_DIR/scripts/lib/claude-home.sh"
+SCHED_DIR="$(claude_home_path "$INSTALL_DIR")/scheduled-tasks" || { echo "NESTOR_CLAUDE_HOME is invalid" >&2; exit 1; }
 _SCHED_CLI="$INSTALL_DIR/dist/web/schedule-registry-cli.js"
 _SCHED_CLI_OK=0
 if [ -f "$_SCHED_CLI" ] && command -v node >/dev/null 2>&1; then _SCHED_CLI_OK=1; fi

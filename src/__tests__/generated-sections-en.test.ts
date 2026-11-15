@@ -15,6 +15,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 const tmpRoot = mkdtempSync(join(tmpdir(), 'marveen-sections-en-test-'))
+// The bodies name the instance's own Claude home (src/claude-home.ts): <tmpRoot>/.claude-home, hashed as <ROOT>. An
+// inherited NESTOR_CLAUDE_HOME (agents get it exported) would put a machine path into the hash.
+delete process.env.NESTOR_CLAUDE_HOME
 // readEnvFile (src/env.ts) takes its folder from this at import time.
 process.env.CLAUDECLAW_ENV_DIR = tmpRoot
 
@@ -498,13 +501,13 @@ const HU_SOURCE_HASHES: Record<string, string> = {
   'evidence': '9dff6e8bd9b8d64c',
   'fleet-auth': '93c48bc9916ec0da',
   'fleet-roster': '4849b0f0ec0dab70',
-  'skill-section': 'ccb3df74b18e6c8f',
-  'claude-md-prompt': '47a4cd6b4097e6be',
-  'precompact-prompt': 'ba0d64daf27b1316',
+  'skill-section': '0f4fa698e8b0ba7d',
+  'claude-md-prompt': '06084c44978e97e3',
+  'precompact-prompt': 'dd82ee120822aefb',
   'mcp-list-channel': 'a7ccf3ed2f0ca342',
   'memory-search-label': '9ddf9811134c353e',
   'message-close': '835ee6c92d6e0a7a',
-  'skills-path-trap': '76b7632b730c8120',
+  'skills-path-trap': '0df2a79813add8fd',
   'strict-api': 'e619c666af284fec',
   'system-directive-auth': '2267241c76f696aa',
 }

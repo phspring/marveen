@@ -5,7 +5,7 @@
 // reads paths: nothing here writes a real config.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 // @ts-expect-error -- plain .mjs hook script, no types
-import { gateDecision, SUBAGENT_PROTECTED_INSTALL_PATHS, SUBAGENT_FILE_GATE_MSG, unquotedForQualifier } from '../../scripts/hooks/db-write-gate.mjs'
+import { gateDecision, PROTECTED_INSTALL_PATHS, SUBAGENT_PROTECTED_INSTALL_PATHS, SUBAGENT_FILE_GATE_MSG, unquotedForQualifier } from '../../scripts/hooks/db-write-gate.mjs'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -35,6 +35,7 @@ beforeEach(() => {
 afterEach(() => { rmSync(base, { recursive: true, force: true }) })
 
 const SUB = { deny: true, reason: 'subagent-file' }
+const INST = { deny: true, reason: 'install-file' }
 const SERVER = '{"mcpServers":{"x":{"command":"sh","args":["-c","id"]}}}'
 const call = (tool: string, input: Record<string, unknown>, o: { subAgent: boolean; cwd?: string; projectDir?: string | null; configDir?: string | null }) =>
   gateDecision(tool, input, { cwd: o.cwd ?? agent, root, subAgent: o.subAgent, projectDir: o.projectDir ?? null, configDir: o.configDir ?? null })
@@ -43,9 +44,12 @@ const bash = (command: string, o: Parameters<typeof call>[2]) => call('Bash', { 
 
 it('the entries are on the SUB-AGENT list (not the common one); .channels-config/.claude.json via the directory entry (#2503)', () => {
   const rels = SUBAGENT_PROTECTED_INSTALL_PATHS.map((t: { rel?: string; home?: string }) => t.rel ?? `~/${t.home}`)
-  for (const r of ['agents/*/.mcp.json', 'agents/*/.claude-config/.claude.json', '.mcp.json', '.channels-config', '~/.claude.json']) {
+  for (const r of ['agents/*/.mcp.json', 'agents/*/.claude-config/.claude.json', '.mcp.json', '.channels-config']) {
     expect(rels).toContain(r)
   }
+  // docs/sajat-claude-home.md: the host ~/.claude.json is on the COMMON list now (every agent, the main agent too)
+  expect(rels).not.toContain('~/.claude.json')
+  expect(PROTECTED_INSTALL_PATHS.map((t: { rel?: string; home?: string }) => t.rel ?? `~/${t.home}`)).toContain('~/.claude.json')
 })
 
 describe('a sub-agent may not write an MCP server list', () => {
@@ -59,7 +63,10 @@ describe('a sub-agent may not write an MCP server list', () => {
     join(homedir(), '.claude.json'),
   ]
   it.each(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])('%s on every list', (tool) => {
-    for (const t of targets()) expect(call(tool, { file_path: t, content: SERVER }, { subAgent: true })).toEqual(SUB)
+    // the host ~/.claude.json is on the common list now (docs/sajat-claude-home.md): same deny, reason install-file
+    for (const t of targets()) {
+      expect(call(tool, { file_path: t, content: SERVER }, { subAgent: true })).toEqual(t === join(homedir(), '.claude.json') ? INST : SUB)
+    }
   })
   it('a relative path, a symlink, upper case', () => {
     expect(write('.mcp.json', { subAgent: true })).toEqual(SUB)
@@ -81,10 +88,14 @@ describe('a sub-agent may not write an MCP server list', () => {
     "python3 -c \"open('.mcp.json','w').write('{}')\"",
     'echo x > @ROOT@/.mcp.json',
     'echo x > @ROOT@/.channels-config/.claude.json',
-    'cp /tmp/x ~/.claude.json',
     'echo x > ../qwen/.claude-config/.claude.json',
   ])('Bash: %s', (command) => {
     expect(bash(command, { subAgent: true })).toEqual(SUB)
+  })
+  // the host ~/.claude.json is on the common list now (docs/sajat-claude-home.md): denied for the main agent too
+  it('Bash: cp /tmp/x ~/.claude.json (every agent, reason install-file)', () => {
+    expect(bash('cp /tmp/x ~/.claude.json', { subAgent: true })).toEqual(INST)
+    expect(bash('cp /tmp/x ~/.claude.json', { subAgent: false, cwd: root, projectDir: root })).toEqual(INST)
   })
 })
 

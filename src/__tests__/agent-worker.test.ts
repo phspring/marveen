@@ -79,14 +79,23 @@ describe('configDirKeychainService', () => {
 })
 
 describe('workerHomeFor (WORKERHOME1: worker home derives from MAIN_AGENT_ID)', () => {
-  it('default install keeps the historical paths -- zero migration, unchanged Keychain hash', () => {
-    expect(workerHomeFor('marveen', 'slow').endsWith('/.marveen-worker')).toBe(true)
-    expect(workerHomeFor('marveen', 'fast').endsWith('/.marveen-worker-fast')).toBe(true)
+  // Old rule: ~/.<id>-worker[-fast] in the host home (two same-named instances shared it). New rule: inside the
+  // instance's own Claude home, <home>/workers/<id>[-fast] (src/claude-home.ts instanceWorkerHome).
+  it('lives inside the instance home, never in the host home dir', () => {
+    const prev = process.env.NESTOR_CLAUDE_HOME
+    process.env.NESTOR_CLAUDE_HOME = '/srv/inst/.claude-home'
+    try {
+      expect(workerHomeFor('marveen', 'slow')).toBe('/srv/inst/.claude-home/workers/marveen')
+      expect(workerHomeFor('marveen', 'fast')).toBe('/srv/inst/.claude-home/workers/marveen-fast')
+    } finally {
+      if (prev === undefined) delete process.env.NESTOR_CLAUDE_HOME
+      else process.env.NESTOR_CLAUDE_HOME = prev
+    }
   })
 
-  it('a non-default id derives its own isolated dirs (sandbox/renamed install)', () => {
-    expect(workerHomeFor('jarvis', 'slow').endsWith('/.jarvis-worker')).toBe(true)
-    expect(workerHomeFor('jarvis', 'fast').endsWith('/.jarvis-worker-fast')).toBe(true)
+  it('a non-default id derives its own dirs inside the same instance home', () => {
+    expect(workerHomeFor('jarvis', 'slow').endsWith('/workers/jarvis')).toBe(true)
+    expect(workerHomeFor('jarvis', 'fast').endsWith('/workers/jarvis-fast')).toBe(true)
   })
 
   it('never collides with the default install dir for a different id', () => {

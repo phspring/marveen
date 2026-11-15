@@ -98,8 +98,9 @@ for (const file of ['install-linux.sh', 'install-macos.sh']) {
 
   describe(`${file}: gromzo never falls into the Slack branches`, () => {
     const text = src(file)
-    it('no empty ~/.claude/channels/gromzo: the channel dir is made for every provider but gromzo (Dani 73629)', () => {
-      expect(text).toContain('CHANNEL_DIR="$HOME/.claude/channels/$CHANNEL_PROVIDER"\n# GROMZONOPROVIDER1108: gromzo keeps no channel state here (no token, no access.json), so no empty dir for it.\n[ "$CHANNEL_PROVIDER" = "gromzo" ] || mkdir -p "$CHANNEL_DIR"\n')
+    // docs/sajat-claude-home.md: the token goes straight into the install-scoped state dir, never ~/.claude/channels.
+    it('no empty channels/gromzo: the channel dir is made for every provider but gromzo (Dani 73629)', () => {
+      expect(text).toContain('CHANNEL_DIR="$INSTALL_DIR/.claude/channels/$CHANNEL_PROVIDER"\n# GROMZONOPROVIDER1108: gromzo keeps no channel state here (no token, no access.json), so no empty dir for it.\n[ "$CHANNEL_PROVIDER" = "gromzo" ] || mkdir -p "$CHANNEL_DIR"\n')
       expect(text.match(/^mkdir -p "\$CHANNEL_DIR"$/gm)).toBeNull()
     })
     it('the token prompts, the .env keys, the plugin install and the plugin check each have a gromzo branch', () => {

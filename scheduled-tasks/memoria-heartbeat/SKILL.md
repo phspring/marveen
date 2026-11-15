@@ -53,13 +53,13 @@ Először döntsd el az alábbi 3 kérdéssel:
 
 Lépések:
 1. Keress meglévő skillt a globális és az ágensspecifikus indexben egyaránt:
-   - Globális: `~/.claude/skills/.skill-index.md` (szöveges keresés)
+   - Globális: `$CLAUDE_CONFIG_DIR/skills/.skill-index.md` (szöveges keresés)
    - Ágensspecifikus (ha van): `./.claude/skills/.skill-index.md` a munkamappádban (szöveges keresés)
    - Az ágensspecifikus index mindkét szintet tartalmazza, tehát ha az létezik, elég azt nézegetni.
 2. Ha van releváns skill: PATCH (csak a megváltozott rész cseréje, ne az egész fájl).
    - A `## Buktatók` szekciót preferáld ha hiba/recovery volt.
    - A `## Eljárás` szekciót ha a folyamat változott.
-   - Ha a releváns skill GLOBÁLIS (`~/.claude/skills/` alatt), vagy te vagy a fő ágens (a projekt-gyökér `.claude/skills` mappáját is minden ágens látja), ne a helyén javítsd: a javított teljes szöveget küldd javaslatként (`POST /api/skills/propose`, lásd a 3. pontot).
+   - Ha a releváns skill GLOBÁLIS (`$CLAUDE_CONFIG_DIR/skills/` alatt), vagy te vagy a fő ágens (a projekt-gyökér `.claude/skills` mappáját is minden ágens látja), ne a helyén javítsd: a javított teljes szöveget küldd javaslatként (`POST /api/skills/propose`, lásd a 3. pontot).
 3. Ha NINCS releváns skill: hozz létre újat. A fő ágens és a minden ágensnek szóló skill NE ezzel a blokkal
    készüljön (a fő ágens munkakönyvtára a projekt gyökere, annak `.claude/skills` mappáját minden ágens látja):
    azt a blokk utáni javaslat-úton küldd.
@@ -85,7 +85,7 @@ Lépések:
    - ...
    EOF
    ```
-   Ez a SAJÁT mappád (a munkakönyvtárad `.claude/skills`). Ha a skill minden ágensnek szól, ne a `~/.claude/skills/`-be írd: küldd a teljes SKILL.md-t a `POST /api/skills/propose` végpontra (`{"name": ..., "skill_md": ..., "reason": ...}`, dashboard tokennel), a gazda jóváhagyásáig karanténban vár. A fő ágens mindig így küldi.
+   Ez a SAJÁT mappád (a munkakönyvtárad `.claude/skills`). Ha a skill minden ágensnek szól, ne a `$CLAUDE_CONFIG_DIR/skills/`-be írd: küldd a teljes SKILL.md-t a `POST /api/skills/propose` végpontra (`{"name": ..., "skill_md": ..., "reason": ...}`, dashboard tokennel), a gazda jóváhagyásáig karanténban vár. A fő ágens mindig így küldi.
 4. Linter az érintett skillen (KÖTELEZŐ, a skill-akció után):
    ```bash
    node {{INSTALL_DIR}}/scripts/skill-lint.mjs .claude/skills/<NEV>     # javaslatnál a piszkozaton: .claude/skill-javaslat

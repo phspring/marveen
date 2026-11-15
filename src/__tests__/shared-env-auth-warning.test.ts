@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { makeInstanceHome } from './helpers/instance-home.js'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -30,17 +31,21 @@ const MSG = 'isolated-config: the shared settings env carries auth keys into thi
 const SECRET = 'fixture-value-never-logged-789'
 
 function writeShared(settings: unknown): void {
-  writeFileSync(join(SANDBOX, 'home', '.claude', 'settings.json'), JSON.stringify(settings))
+  writeFileSync(join(SANDBOX, 'inst', 'settings.json'), JSON.stringify(settings))
 }
 
 beforeEach(() => {
   SANDBOX = mkdtempSync(join(tmpdir(), 'sharedenvauth-'))
-  mkdirSync(join(SANDBOX, 'home', '.claude'), { recursive: true })
+  // The shared root is the instance's own Claude home (src/claude-home.ts), not <HOME>/.claude.
+  mkdirSync(join(SANDBOX, 'home'), { recursive: true })
+  makeInstanceHome(join(SANDBOX, 'inst'))
+  process.env.NESTOR_CLAUDE_HOME = join(SANDBOX, 'inst')
   mkdirSync(join(SANDBOX, 'agents', 'ag'), { recursive: true })
   CONFIGURED_DIR = null
 })
 afterEach(() => {
   rmSync(SANDBOX, { recursive: true, force: true })
+  delete process.env.NESTOR_CLAUDE_HOME
   vi.restoreAllMocks()
 })
 

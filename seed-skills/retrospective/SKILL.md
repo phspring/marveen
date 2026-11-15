@@ -53,7 +53,7 @@ curl -s -H "Authorization: Bearer $(cat store/.dashboard-token)" \
   "http://localhost:$PORT/api/daily-log?agent=$AGENT_ID&date=$DATE"
 
 # Skills that were referenced or used
-ls ~/.claude/skills/ | head -30
+ls $CLAUDE_CONFIG_DIR/skills/ | head -30
 ```
 
 ### 2. Analyze with A/B/C framework
@@ -85,7 +85,7 @@ CHANGE: what specifically to add/modify/remove
 Rules:
 - Only propose a NEW skill if the pattern appeared 2+ times or was complex enough (5+ steps)
 - Prefer PATCH over CREATE -- check if an existing skill covers 80% of the case
-- Check `~/.claude/skills/.skill-index.md` before proposing duplicates
+- Check `$CLAUDE_CONFIG_DIR/skills/.skill-index.md` before proposing duplicates
 
 #### Memory proposals
 For each memory-related finding:

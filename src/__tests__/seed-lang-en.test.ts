@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+// Seeds land in the instance's own Claude home (CLAUDE_HOME_DIR, scripts/lib/claude-home.sh), no longer <HOME>/.claude.
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, statSync, copyFileSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -78,8 +79,8 @@ function makeInstall(opts: { lang?: 'en' | 'hu'; withI18n?: boolean; helper?: bo
   const install = join(base, 'install')
   const home = join(base, 'home')
   mkdirSync(install, { recursive: true })
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true })
-  mkdirSync(join(home, '.claude', 'scheduled-tasks'), { recursive: true })
+  mkdirSync(join(home, 'inst-home', 'skills'), { recursive: true })
+  mkdirSync(join(home, 'inst-home', 'scheduled-tasks'), { recursive: true })
   writeFileSync(join(install, '.env'), `MAIN_AGENT_ID=marveen\nBOT_NAME=Marveen\nOWNER_NAME=Owner\nWEB_PORT=3420\n${opts.lang ? `AGENT_TEXT_LANG=${opts.lang}\n` : ''}`)
   if (opts.helper !== false) {
     for (const f of ['seed-lang.sh', 'persona-template.sh']) put(install, `scripts/lib/${f}`, read(`scripts/lib/${f}`))
@@ -99,8 +100,8 @@ function makeInstall(opts: { lang?: 'en' | 'hu'; withI18n?: boolean; helper?: bo
 
 /** The installed copy of a seed (rendered for the task, verbatim for the skill). */
 const target = (home: string, rel: string) =>
-  rel.startsWith('seed-skills/') ? join(home, '.claude', 'skills', rel.slice('seed-skills/'.length))
-    : join(home, '.claude', 'scheduled-tasks', rel.slice('seed-scheduled-tasks/'.length))
+  rel.startsWith('seed-skills/') ? join(home, 'inst-home', 'skills', rel.slice('seed-skills/'.length))
+    : join(home, 'inst-home', 'scheduled-tasks', rel.slice('seed-scheduled-tasks/'.length))
 function seedInstalled(home: string, files: Record<string, string>): void {
   for (const [rel, text] of Object.entries(files)) {
     const p = target(home, rel)
@@ -135,7 +136,7 @@ function bash(script: string, file: string): { out: string; code: number } {
 
 const PRELUDE = (install: string, home: string) => [
   'set -u', 'GREEN=""; NC=""; ORANGE=""',
-  `INSTALL_DIR="${install}"`, `HOME="${home}"`,
+  `INSTALL_DIR="${install}"`, `HOME="${home}"`, `CLAUDE_HOME_DIR="${home}/inst-home"`,
   'MAIN_AGENT_ID=""; BOT_NAME=""; OWNER_NAME=""; WEB_PORT=""; RESEED_FLEET="${RESEED_FLEET:-0}"',
 ]
 // update.sh's own block, verbatim: the helper and the language, read only
@@ -201,11 +202,11 @@ describe('the update refresh switches a whole untouched dir to the install langu
       for (const [rel, text] of Object.entries(EN2)) {
         expect(installedText(f.home, rel)).toBe(rel.startsWith('seed-skills/') ? text : render(text))
       }
-      const before = tree(join(f.home, '.claude'))
+      const before = tree(join(f.home, 'inst-home'))
       const again = refreshNew(f.install, f.home)
       expect(again.code, again.out).toBe(0)
       expect(again.out).not.toMatch(/frissitve: [1-9]/)
-      expect(tree(join(f.home, '.claude'))).toEqual(before)
+      expect(tree(join(f.home, 'inst-home'))).toEqual(before)
     } finally {
       rmSync(f.base, { recursive: true, force: true })
     }
@@ -262,7 +263,7 @@ describe('the update refresh switches a whole untouched dir to the install langu
       seedInstalled(b.home, HU1)
       expect(refreshNew(a.install, a.home).code).toBe(0)
       expect(refreshNew(b.install, b.home).code).toBe(0)
-      expect(tree(join(a.home, '.claude'))).toEqual(tree(join(b.home, '.claude')))
+      expect(tree(join(a.home, 'inst-home'))).toEqual(tree(join(b.home, 'inst-home')))
     } finally {
       rmSync(a.base, { recursive: true, force: true })
       rmSync(b.base, { recursive: true, force: true })
@@ -273,7 +274,7 @@ describe('the update refresh switches a whole untouched dir to the install langu
     const f = makeInstall({ lang: 'en' })
     try {
       seedInstalled(f.home, Object.fromEntries(Object.entries(EN2).filter(([k]) => k.startsWith('seed-scheduled-tasks/'))))
-      const dir = join(f.home, '.claude', 'scheduled-tasks', 'task1')
+      const dir = join(f.home, 'inst-home', 'scheduled-tasks', 'task1')
       const call = [...PRELUDE(f.install, f.home), 'MAIN_AGENT_ID=marveen; BOT_NAME=Marveen; OWNER_NAME=Owner; WEB_PORT=3420', NEW_FUNCS, LANG_BLOCK,
         `sched_task_all_shipped "${dir}" "${f.install}/seed-scheduled-tasks/task1" template && echo SHIPPED || echo NOT`].join('\n') + '\n'
       expect(bash(call, join(f.base, 'p1.sh')).out.trim()).toBe('SHIPPED')
@@ -288,7 +289,7 @@ describe('the update refresh switches a whole untouched dir to the install langu
 describe('the PULL run executes the OLD update.sh: the English tree is invisible to it (Samu 73243)', () => {
   // fixtures/update-sh-pre-seed-a.sh: update.sh's seed functions and initial-seed blocks at 724b356b9, verbatim.
   function runOld(install: string, home: string, reseed: boolean) {
-    return bash([...PRELUDE(install, home), `RESEED_FLEET=${reseed ? 1 : 0}`, 'SKILLS_DIR="$HOME/.claude/skills"; SCHED_TARGET_DIR="$HOME/.claude/scheduled-tasks"',
+    return bash([...PRELUDE(install, home), `RESEED_FLEET=${reseed ? 1 : 0}`, 'SKILLS_DIR="$CLAUDE_HOME_DIR/skills"; SCHED_TARGET_DIR="$CLAUDE_HOME_DIR/scheduled-tasks"',
       'MAIN_AGENT_ID=marveen; BOT_NAME=Marveen; OWNER_NAME=Owner', OLD, 'run_seed_refresh'].join('\n') + '\n', join(install, '..', 'probe-old.sh'))
   }
   for (const reseed of [false, true]) {
@@ -299,12 +300,12 @@ describe('the PULL run executes the OLD update.sh: the English tree is invisible
         for (const f of [a, b]) {
           seedInstalled(f.home, HU1)
           rmSync(target(f.home, 'seed-skills/demo/SKILL.md'), { force: true })   // a missing file, and a missing dir:
-          rmSync(join(f.home, '.claude', 'scheduled-tasks', 'task1'), { recursive: true, force: true })
+          rmSync(join(f.home, 'inst-home', 'scheduled-tasks', 'task1'), { recursive: true, force: true })
           const r = runOld(f.install, f.home, reseed)
           expect(r.code, r.out).toBe(0)
         }
-        const ta = tree(join(a.home, '.claude'))
-        expect(ta).toEqual(tree(join(b.home, '.claude')))
+        const ta = tree(join(a.home, 'inst-home'))
+        expect(ta).toEqual(tree(join(b.home, 'inst-home')))
         expect(Object.keys(ta).some((k) => k.includes('i18n') || k.includes('.en.'))).toBe(false)
         expect(Object.values(ta).some((v) => / en v2/.test(v))).toBe(false)
       } finally {
@@ -333,7 +334,7 @@ describe('the initial seed loops pick the English version on en (installers, upd
           const script = [...PRELUDE(f.install, f.home), 'MAIN_AGENT_ID=marveen; BOT_NAME=Marveen; OWNER_NAME=Owner; WEB_PORT=3420',
             // SEEDRENDERLITERAL1108: the seeding loops render through the shared lib (each script sources it before them)
             `. "${join(ROOT, 'scripts', 'lib', 'seed-refresh.sh')}"`,
-            'SKILLS_DIR="$HOME/.claude/skills"; SCHED_TARGET_DIR="$HOME/.claude/scheduled-tasks"',
+            'SKILLS_DIR="$CLAUDE_HOME_DIR/skills"; SCHED_TARGET_DIR="$CLAUDE_HOME_DIR/scheduled-tasks"',
             'SEED_SKILLS_DIR="$INSTALL_DIR/seed-skills"; SEED_SCHED_DIR="$INSTALL_DIR/seed-scheduled-tasks"',
             'SEED_NEW=0; SEED_SKIP=0; SEED_FORCED=0; SCHED_NEW=0; SCHED_SKIP=0; SCHED_FORCED=0; SCHED_TOMBSTONE=/nonexistent',
             mode === 'no-helper' ? '' : LANG_BLOCK,
@@ -344,7 +345,7 @@ describe('the initial seed loops pick the English version on en (installers, upd
           for (const [rel, text] of Object.entries(want)) {
             expect(installedText(f.home, rel)).toBe(rel.startsWith('seed-skills/') ? text : render(text))
           }
-          expect(Object.keys(tree(join(f.home, '.claude'))).some((k) => k.includes('i18n'))).toBe(false)
+          expect(Object.keys(tree(join(f.home, 'inst-home'))).some((k) => k.includes('i18n'))).toBe(false)
         } finally {
           rmSync(f.base, { recursive: true, force: true })
         }
@@ -369,8 +370,12 @@ describe('docker/first-boot.sh', () => {
       try {
         copyFileSync(join(f.install, '.env'), join(f.install, '.env.bak'))
         const skillsLoop = FIRSTBOOT.slice(FIRSTBOOT.indexOf('for src in skills/skill-factory seed-skills/*/; do'), FIRSTBOOT.indexOf('\n# The hooks, as update.sh installs them'))
+        // docker/first-boot.sh seeds the instance's own Claude home (docs/sajat-claude-home.md), CLAUDE_HOME_DIR, which
+        // it resolves and exports before this part; never $HOME/.claude.
+        const chome = join(f.base, 'inst-home')
+        for (const d of ['skills', 'scheduled-tasks']) mkdirSync(join(chome, d), { recursive: true })
         const script = ['set -u', `INSTALL_DIR="${f.install}"`, `HOME="${f.home}"`, `cd "${f.install}"`, 'say() { :; }',
-          'A=marveen; B=Marveen; O=Owner; WEB_PORT=3420; SCHED="$HOME/.claude/scheduled-tasks"; REGISTER=""',
+          `CLAUDE_HOME_DIR="${chome}"`, 'A=marveen; B=Marveen; O=Owner; WEB_PORT=3420; SCHED="$CLAUDE_HOME_DIR/scheduled-tasks"; REGISTER=""',
           // DOCKERSEEDREFRESH1108: copy_task renders through the shared lib with the raw identity
           'AGENT_ID=marveen; BOT_NAME=Marveen; OWNER_NAME=Owner', `. "${join(ROOT, 'scripts', 'lib', 'seed-refresh.sh')}"`,
           'SEED_LANG=hu', 'if [ -f scripts/lib/seed-lang.sh ]; then . scripts/lib/seed-lang.sh; SEED_LANG="$(seed_lang "$INSTALL_DIR")"; fi',
@@ -379,7 +384,8 @@ describe('docker/first-boot.sh', () => {
         expect(r.code, r.out).toBe(0)
         const want = lang === 'en' ? EN2 : HU2
         for (const [rel, text] of Object.entries(want)) {
-          expect(installedText(f.home, rel)).toBe(rel.startsWith('seed-skills/') ? text : render(text))
+          const docker = join(chome, rel.startsWith('seed-skills/') ? 'skills' : 'scheduled-tasks', rel.replace(/^seed-(skills|scheduled-tasks)\//, ''))
+          expect(readFileSync(docker, 'utf-8')).toBe(rel.startsWith('seed-skills/') ? text : render(text))
         }
       } finally {
         rmSync(f.base, { recursive: true, force: true })

@@ -7,11 +7,17 @@
 // kept: the token is described by its PATH.
 
 import { join, resolve } from 'node:path'
+import { claudeHomeFrom } from './claude-home.js'
+
+/** The instance home from the .env text given (not from disk); an invalid value is shown, never thrown. */
+function homeOrInvalid(root: string, value: string | undefined): string {
+  try { return claudeHomeFrom(root, value) } catch (e) { return `invalid NESTOR_CLAUDE_HOME (${(e as Error).message})` }
+}
 import { parseEnvContent } from './env-parse.js'
 
 /** The .env keys the instance description reads. Nothing else of the file is looked at. */
 export const INSTANCE_ENV_KEYS = [
-  'MAIN_AGENT_ID', 'SERVICE_ID', 'WEB_PORT', 'WEB_HOST', 'MAIN_AGENT_ISOLATED_CONFIG', 'TMUX_TMPDIR', 'NESTOR_NODE',
+  'MAIN_AGENT_ID', 'SERVICE_ID', 'WEB_PORT', 'WEB_HOST', 'MAIN_AGENT_ISOLATED_CONFIG', 'TMUX_TMPDIR', 'NESTOR_NODE', 'NESTOR_CLAUDE_HOME',
 ] as const
 
 /** The name a NEW instance gets (`nestor init`). Written into its .env, so it is explicit, never a fallback. */
@@ -73,7 +79,8 @@ export function describeInstance(root: string, envText: string | null, home: str
     host: env.WEB_HOST?.trim() || '127.0.0.1',
     units: { dashboard: `${unitId}-dashboard`, channels: `${unitId}-channels` },
     tmuxServer: tmuxDir ? resolve(tmuxDir) : 'default',
-    claudeConfig: own ? join(r, '.channels-config') : join(home, '.claude'),
+    // Never the host ~/.claude any more: without its own isolated dir the main agent runs on the instance home.
+    claudeConfig: own ? join(r, '.channels-config') : homeOrInvalid(r, env.NESTOR_CLAUDE_HOME),
     ownClaudeConfig: own,
     tokenPath: join(r, 'store', '.claude-oauth-token'),
     dbPath: join(r, 'store', 'claudeclaw.db'),
@@ -134,7 +141,8 @@ export function findConflicts(a: InstanceInfo, b: InstanceInfo): Conflict[] {
     push('warn', 'tmux server', `both run their agents on ${where}; agent sessions are named after the agent, so same-named agents collide`)
   }
   if (a.claudeConfig === b.claudeConfig) {
-    push('warn', 'Claude config', `both use ${a.claudeConfig}: its settings, skills and plugin state are one`)
+    // docs/sajat-claude-home.md: an instance uses ONLY its own Claude home, so a shared one is an error, not a warning.
+    push('error', 'Claude config', `both use ${a.claudeConfig}: its settings, skills and plugin state are one (give each its own NESTOR_CLAUDE_HOME)`)
   }
   return out
 }

@@ -93,7 +93,15 @@ describe('hitelesito tarolas', () => {
 describe('skill-fajlok kiirasa', () => {
   it('a projekt- es a user-hatokor kulon utat ad', () => {
     expect(skillTargetDir('project', '/x/y')).toBe('/x/y/.claude/skills')
-    expect(skillTargetDir('user')).toContain(join('.claude', 'skills'))
+    // Old rule: the user scope was ~/.claude/skills. New rule: the instance's own home (src/claude-home.ts).
+    const prev = process.env.NESTOR_CLAUDE_HOME
+    process.env.NESTOR_CLAUDE_HOME = '/srv/inst/.claude-home'
+    try {
+      expect(skillTargetDir('user')).toBe('/srv/inst/.claude-home/skills')
+    } finally {
+      if (prev === undefined) delete process.env.NESTOR_CLAUDE_HOME
+      else process.env.NESTOR_CLAUDE_HOME = prev
+    }
   })
 
   it('alkonyvtarba is ir', () => {

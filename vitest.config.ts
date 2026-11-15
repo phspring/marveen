@@ -54,6 +54,9 @@ export default defineConfig({
       './src/__tests__/setup/assert-not-live-install.ts',
       './src/__tests__/setup/assert-supported-node.ts',
       './src/__tests__/setup/default-ssh-dir-seam.ts',
+      // default-claude-home-seam: the same for the instance Claude home (docs/sajat-claude-home.md): a test that
+      // names no NESTOR_CLAUDE_HOME gets a scratch dir instead of writing <checkout>/.claude-home.
+      './src/__tests__/setup/default-claude-home-seam.ts',
     ],
   },
 })

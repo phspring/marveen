@@ -1129,7 +1129,11 @@ park_morning_timer() {
   [ -f "$marker" ] && return 0
   [ -d "$units_dir" ] || return 0
   command -v systemctl >/dev/null 2>&1 || return 0
-  task_cfg="$HOME/.claude/scheduled-tasks/reggeli-napindito/task-config.json"
+  # The instance's own Claude home (docs/sajat-claude-home.md); a tree without the helper falls back to its default spot.
+  _mt_home="${CLAUDE_HOME_DIR:-}"
+  [ -n "$_mt_home" ] || _mt_home="$( . "$INSTALL_DIR/scripts/lib/claude-home.sh" 2>/dev/null && claude_home_path "$INSTALL_DIR" 2>/dev/null)" || true
+  [ -n "$_mt_home" ] || _mt_home="$INSTALL_DIR/.claude-home"
+  task_cfg="$_mt_home/scheduled-tasks/reggeli-napindito/task-config.json"
   _park_blocked=0
   _parked_units=""
   for morn_timer in "$units_dir/"*-morning.timer; do
@@ -1519,7 +1523,11 @@ run_seed_refresh
 # next channel start (the restart below, or the next natural one). Outside any
 # channel session, never installs, never fatal: scripts/lib/channel-plugin-refresh.sh.
 if [ -f "$INSTALL_DIR/scripts/lib/channel-plugin-refresh.sh" ]; then
-  ( . "$INSTALL_DIR/scripts/lib/channel-plugin-refresh.sh" && refresh_channel_plugins "$INSTALL_DIR" "$HOME" ) || true
+  # The instance's own Claude home, never the host ~/.claude (docs/sajat-claude-home.md). Before the first migration
+  # there is none yet: then only the install's own config dirs are refreshed.
+  _cpr_home="$( . "$INSTALL_DIR/scripts/lib/claude-home.sh" && claude_home_require "$INSTALL_DIR" 2>/dev/null)" || _cpr_home=""
+  ( . "$INSTALL_DIR/scripts/lib/channel-plugin-refresh.sh" && refresh_channel_plugins "$INSTALL_DIR" "$_cpr_home" ) || true
+  unset _cpr_home
 fi
 
 if [ "$OLD_VERSION" = "$NEW_VERSION" ]; then
@@ -1709,6 +1717,21 @@ fi
 # exits ~150 lines above. It now runs before that exit -- see the block above
 # the OLD_VERSION check. Do not move repairs back down here.
 
+# The instance's OWN Claude home (docs/sajat-claude-home.md). An install updated from a build that still ran on the
+# host user's ~/.claude gets its home here, once (the marker makes it a no-op afterwards), BEFORE anything below
+# seeds into it or restarts a service onto it. If that fails the update stops: the new code refuses to start agents
+# without a home, and a half-moved install is worse than an old one.
+. "$INSTALL_DIR/scripts/lib/claude-home.sh"
+CLAUDE_HOME_DIR="$(claude_home_path "$INSTALL_DIR")" || { echo -e "${RED}HIBA:${NC} NESTOR_CLAUDE_HOME ervenytelen (lasd fent)"; exit 1; }
+if [ ! -f "$CLAUDE_HOME_DIR/$CLAUDE_HOME_MARKER" ]; then
+  echo -e "  A peldany sajat Claude-homeja: $CLAUDE_HOME_DIR (egyszeri atkoltoztetes)..."
+  if ! node "$INSTALL_DIR/dist/instance-cli.js" migrate-claude-home "$INSTALL_DIR"; then
+    echo -e "${RED}HIBA:${NC} a sajat Claude-home letrehozasa nem sikerult. Kezzel: bin/nestor migrate-claude-home"
+    exit 1
+  fi
+fi
+export CLAUDE_HOME_DIR CLAUDE_CONFIG_DIR="$CLAUDE_HOME_DIR"
+
 # Seed skills & scheduled tasks (idempotent: skip existing)
 # Source .env for template variables needed by seed-scheduled-tasks
 MAIN_AGENT_ID=""
@@ -1719,8 +1742,8 @@ if [ -f "$INSTALL_DIR/.env" ]; then
   BOT_NAME=$(grep '^BOT_NAME=' "$INSTALL_DIR/.env" | cut -d= -f2-)
   OWNER_NAME=$(grep '^OWNER_NAME=' "$INSTALL_DIR/.env" | cut -d= -f2-)
 fi
-SKILLS_DIR="$HOME/.claude/skills"
-SCHED_TARGET_DIR="$HOME/.claude/scheduled-tasks"
+SKILLS_DIR="$CLAUDE_HOME_DIR/skills"
+SCHED_TARGET_DIR="$CLAUDE_HOME_DIR/scheduled-tasks"
 
 # Seed skills (no template vars needed, safe without .env).
 # Default: only seed MISSING skills (skip-if-exists), never clobbering the
@@ -1850,7 +1873,7 @@ if [ -d "$SEED_SCHED_DIR" ]; then
 
     # Seed bumblebee threat-intel catalogs into ~/.claude/tools/
     BB_SEED_TI="$SEED_SCHED_DIR/bumblebee-hygiene-scan/threat-intel"
-    BB_TARGET_TI="$HOME/.claude/tools/bumblebee-threat-intel"
+    BB_TARGET_TI="$CLAUDE_HOME_DIR/tools/bumblebee-threat-intel"
     if [ -d "$BB_SEED_TI" ] && [ ! -d "$BB_TARGET_TI" ]; then
       mkdir -p "$BB_TARGET_TI"
       cp "$BB_SEED_TI"/*.json "$BB_TARGET_TI/" 2>/dev/null
@@ -1943,12 +1966,12 @@ fi
 # changed since the last update, and a slack-provider agent exists, run
 # the smoke-test (if SLACK_SMOKE_TEST_ALLOWED=true in its .env).
 SLACK_REF_FILE="$INSTALL_DIR/store/marveen-marketplace-slack-channel-ref.txt"
-MARKETPLACE_PLUGIN_DIR="$HOME/.claude/plugins/cache/marveen-marketplace/slack-channel"
+MARKETPLACE_PLUGIN_DIR="$CLAUDE_HOME_DIR/plugins/cache/marveen-marketplace/slack-channel"
 if [ -d "$MARKETPLACE_PLUGIN_DIR" ]; then
   # The registry's installPath (and commit) is the version in use; the dir
   # listing alone keeps returning the oldest version dir (SLACKPLUGINVER1006B).
   CURRENT_REF="$( . "$INSTALL_DIR/scripts/lib/channel-plugin-refresh.sh" 2>/dev/null \
-    && channel_plugin_current_ref "$HOME/.claude" "slack-channel@marveen-marketplace" )" || true
+    && channel_plugin_current_ref "$CLAUDE_HOME_DIR" "slack-channel@marveen-marketplace" )" || true
   if [ -z "$CURRENT_REF" ]; then
     CURRENT_REF="$(ls "$MARKETPLACE_PLUGIN_DIR" 2>/dev/null | head -1)"
   fi

@@ -7,11 +7,14 @@ import { tmpdir } from 'node:os'
 import { Readable, Writable } from 'node:stream'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { makeInstanceHome } from './helpers/instance-home.js'
 
 const H = vi.hoisted(() => ({ root: '' }))
 const tmpRoot = mkdtempSync(join(tmpdir(), 'skills-cli-'))
 H.root = tmpRoot
 const fakeHome = join(tmpRoot, 'home')
+// The global skill root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude/skills.
+process.env.NESTOR_CLAUDE_HOME = makeInstanceHome(join(fakeHome, 'inst-home'))
 const bin = join(tmpRoot, 'bin')
 const log = join(tmpRoot, 'tool.log')
 
@@ -94,7 +97,7 @@ async function stallDuring(fn: () => Promise<unknown>): Promise<number> {
 const STALL_MAX_MS = 750
 
 function makeSkill(name: string) {
-  const dir = join(fakeHome, '.claude', 'skills', name)
+  const dir = join(fakeHome, 'inst-home', 'skills', name)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'SKILL.md'), `# ${name}\n`)
 }
@@ -115,7 +118,7 @@ describe('skills routes run zip/cp asynchronously', () => {
     expect(r.body.toString()).toBe('ZIPDATA')
     const lines = readFileSync(log, 'utf8').split('\n')
     const end = lines.indexOf('zip end-args')
-    expect(lines.slice(0, end + 1).filter((l) => l.startsWith('zip cwd='))).toEqual([`zip cwd=${realpathSync(join(fakeHome, '.claude', 'skills'))}`])
+    expect(lines.slice(0, end + 1).filter((l) => l.startsWith('zip cwd='))).toEqual([`zip cwd=${realpathSync(join(fakeHome, 'inst-home', 'skills'))}`])
     const tmpZip = lines[2].slice('arg='.length)
     expect(tmpZip).toMatch(/skills-export-[0-9a-f-]+\.zip$/)
     expect(lines.slice(1, end)).toEqual(['arg=-r', `arg=${tmpZip}`, 'arg=.', 'arg=--include', 'arg=*/SKILL.md', 'arg=--include', 'arg=*/references/*'])
@@ -154,7 +157,7 @@ describe('skills routes run zip/cp asynchronously', () => {
     expect(readFileSync(join(dest, 'SKILL.md'), 'utf8')).toBe('# s2\n')
     expect(existsSync(stale)).toBe(false)
     const lines = readFileSync(log, 'utf8').split('\n').filter(Boolean)
-    expect(lines).toEqual(['cp start', 'arg=-r', `arg=${join(fakeHome, '.claude', 'skills', 's2')}`, `arg=${join(tmpRoot, 'agents', 'a1', '.claude', 'skills', 's2')}`, 'cp end'])
+    expect(lines).toEqual(['cp start', 'arg=-r', `arg=${join(fakeHome, 'inst-home', 'skills', 's2')}`, `arg=${join(tmpRoot, 'agents', 'a1', '.claude', 'skills', 's2')}`, 'cp end'])
     expect(stall).toBeLessThan(STALL_MAX_MS)
   })
 

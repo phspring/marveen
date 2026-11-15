@@ -8,11 +8,14 @@ import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, readdirSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { makeInstanceHome } from './helpers/instance-home.js'
 
 const tmpHome = mkdtempSync(join(tmpdir(), 'skill-switch-home-'))
 const tmpRoot = mkdtempSync(join(tmpdir(), 'skill-switch-root-'))
 const realHome = process.env.HOME
 process.env.HOME = tmpHome
+// The global skill root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude/skills.
+process.env.NESTOR_CLAUDE_HOME = makeInstanceHome(join(tmpHome, 'inst-home'))
 afterAll(() => { process.env.HOME = realHome; rmSync(tmpHome, { recursive: true, force: true }); rmSync(tmpRoot, { recursive: true, force: true }) })
 
 // undefined: the real settings chain (override file, .env, registry default) answers.
@@ -51,7 +54,7 @@ async function call(method: string, path: string, body: unknown, auth: Auth, han
 }
 const TOKEN: Auth = { kind: 'token', agent: 'soma' }
 const SESSION: Auth = { kind: 'session', user: 'owner' }
-const GLOBAL = join(tmpHome, '.claude', 'skills')
+const GLOBAL = join(tmpHome, 'inst-home', 'skills')
 const STORE = join(tmpRoot, 'store')
 const PENDING = join(STORE, 'skills-pending')
 const AUDIT = join(STORE, q.SKILL_AUDIT_FILE)

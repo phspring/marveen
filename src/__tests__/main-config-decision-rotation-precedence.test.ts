@@ -20,6 +20,9 @@ import { mkdtempSync, rmSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
+// agent-worker resolves the worker home (inside the instance home, src/claude-home.ts) at import time, while the
+// mocked PROJECT_ROOT is still ''. An absolute home through the env seam keeps that import from refusing a relative path.
+vi.hoisted(() => { process.env.NESTOR_CLAUDE_HOME = require('node:path').join(require('node:os').tmpdir(), 'nestor-test-inst-home') })
 let ROOT = ''
 
 vi.mock('../config.js', async (orig) => ({

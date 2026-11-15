@@ -4,6 +4,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { useInstanceHome } from './helpers/instance-home.js'
 
 // Redirect homedir() (used inside ensureIsolatedChannelConfigDir to find the
 // shared ~/.claude) and agentDir() (used to find the agent cwd) at the temp
@@ -29,8 +30,10 @@ const TG = CHANNEL_PLUGIN_IDS.telegram
 const SL = CHANNEL_PLUGIN_IDS.slack
 const DI = CHANNEL_PLUGIN_IDS.discord
 
-function seedSharedClaude(home: string) {
-  const claude = join(home, '.claude')
+// The shared root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude.
+const instHome = () => join(SANDBOX, 'inst-home')
+let restoreHome: () => void = () => {}
+function seedSharedClaude(claude: string) {
   mkdirSync(claude, { recursive: true })
   // shared top-level entries; projects/ must end up symlinked (transcripts),
   // .credentials.json must NOT (auth comes from CLAUDE_CODE_OAUTH_TOKEN env).
@@ -54,10 +57,12 @@ function seedSharedClaude(home: string) {
 beforeEach(() => {
   SANDBOX = mkdtempSync(join(tmpdir(), 'isocfg-'))
   AUTH_MODE = {}
-  seedSharedClaude(join(SANDBOX, 'home'))
+  restoreHome = useInstanceHome(instHome())
+  seedSharedClaude(instHome())
   mkdirSync(join(SANDBOX, 'agents', 'testagent'), { recursive: true })
 })
 afterEach(() => {
+  restoreHome()
   rmSync(SANDBOX, { recursive: true, force: true })
 })
 
@@ -83,7 +88,7 @@ describe('ensureIsolatedChannelConfigDir', () => {
     const cfg = ensureIsolatedChannelConfigDir('testagent', 'telegram')!
     expect(existsSync(join(cfg, 'projects'))).toBe(false)
     // The shared root's own transcripts must be left untouched by provisioning.
-    expect(existsSync(join(SANDBOX, 'home', '.claude', 'projects'))).toBe(true)
+    expect(existsSync(join(instHome(), 'projects'))).toBe(true)
   })
 
   it('does NOT symlink or copy .credentials.json (auth via CLAUDE_CODE_OAUTH_TOKEN env)', () => {
@@ -171,8 +176,9 @@ describe('ensureIsolatedChannelConfigDir', () => {
     expect(lstatSync(join(second!, 'plugins', 'cache')).isSymbolicLink()).toBe(true)
   })
 
-  it('returns null (degraded, not fatal) when the shared ~/.claude is absent', () => {
-    rmSync(join(SANDBOX, 'home', '.claude'), { recursive: true, force: true })
+  // Old rule: null when the shared ~/.claude is absent. New rule: null when the INSTANCE home is absent (no fallback).
+  it('returns null (not fatal) when the instance home is absent', () => {
+    rmSync(instHome(), { recursive: true, force: true })
     expect(ensureIsolatedChannelConfigDir('testagent', 'telegram')).toBeNull()
   })
 })

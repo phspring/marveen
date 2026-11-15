@@ -61,7 +61,7 @@ fresh() {
 }
 run() { # runs refresh_channel_plugins in a subshell, like update.sh does
   # shellcheck source=../lib/channel-plugin-refresh.sh
-  OUT="$( (. "$LIB" && CHANNEL_PLUGIN_CLAUDE_BIN="${BIN-$TMPD/claude}" refresh_channel_plugins "$INST" "$HOME_D") 2>&1)"
+  OUT="$( (. "$LIB" && CHANNEL_PLUGIN_CLAUDE_BIN="${BIN-$TMPD/claude}" refresh_channel_plugins "$INST" "$HOME_D/.claude") 2>&1)"
   RC=$?
 }
 calls() { wc -l < "$FAKE_LOG" | tr -d ' '; }
@@ -150,7 +150,7 @@ eq "...exit 0" "0" "$RC"
 
 fresh
 reg "$HOME_D/.claude" "$REG_WITH"
-OUT="$(FAKE_FAIL="/home/" bash -c 'set -e; (. "$1" && CHANNEL_PLUGIN_CLAUDE_BIN="$2" refresh_channel_plugins "$3" "$4") || true; echo after' _ "$LIB" "$TMPD/claude" "$INST" "$HOME_D" 2>&1)"
+OUT="$(FAKE_FAIL="/home/" bash -c 'set -e; (. "$1" && CHANNEL_PLUGIN_CLAUDE_BIN="$2" refresh_channel_plugins "$3" "$4") || true; echo after' _ "$LIB" "$TMPD/claude" "$INST" "$HOME_D/.claude" 2>&1)"
 case "$OUT" in *"kilepesi kod 3"*after) pass "under set -e (as in update.sh) a failing refresh is logged and the script carries on" ;; *) fail "under set -e the script carries on" "after" "$OUT" ;; esac
 
 echo ""
@@ -229,7 +229,7 @@ echo ""
 echo "update.sh wiring (read, never run)"
 echo "=================================="
 seed="$(grep -n '^run_seed_refresh$' "$UPDATE" | cut -d: -f1)"
-call="$(grep -n 'refresh_channel_plugins "\$INSTALL_DIR" "\$HOME" ) || true$' "$UPDATE" | cut -d: -f1)"
+call="$(grep -n 'refresh_channel_plugins "\$INSTALL_DIR" "\$_cpr_home" ) || true$' "$UPDATE" | cut -d: -f1)"
 uptodate="$(grep -n '^if \[ "\$OLD_VERSION" = "\$NEW_VERSION" \]; then$' "$UPDATE" | cut -d: -f1)"
 restart="$(grep -n '^FINALIZE_SCRIPT=' "$UPDATE" | cut -d: -f1)"
 if [ -n "$seed" ] && [ -n "$call" ] && [ -n "$uptodate" ] && [ -n "$restart" ] && [ "$seed" -lt "$call" ] && [ "$call" -lt "$uptodate" ] && [ "$call" -lt "$restart" ]; then
@@ -275,7 +275,7 @@ first="$(grep -n '^SLACK_REF_FILE=' "$UPDATE" | cut -d: -f1)"
 last="$(grep -n '^# Scrub any polluted channel tokens' "$UPDATE" | cut -d: -f1)"
 sed -n "${first},$((last - 1))p" "$UPDATE" > "$TMPD/smoke-block.sh"
 run_block() { # home install
-  ( HOME="$1" INSTALL_DIR="$2" UPDATE_PIDFILE="$2/pid" UPDATE_PIDFILE_TMP="$2/pid.tmp" \
+  ( HOME="$1" CLAUDE_HOME_DIR="$1/.claude" INSTALL_DIR="$2" UPDATE_PIDFILE="$2/pid" UPDATE_PIDFILE_TMP="$2/pid.tmp" \
     RED="" NC="" bash -c 'write_result() { :; }; . "$0"' "$TMPD/smoke-block.sh" 2>&1 )
 }
 B="$TMPD/b/$RANDOM$RANDOM"; BH="$B/home"; BI="$B/install"

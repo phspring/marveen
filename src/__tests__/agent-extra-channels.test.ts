@@ -11,6 +11,7 @@
 //  3. the launcher's binding: --channels, the state-dir export, enabledPlugins,
 //     the isolation provisioner and the resume decision all receive the extras.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { makeInstanceHome } from './helpers/instance-home.js'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -233,13 +234,15 @@ describe('resume with extras: kept only when every plugin comes back', () => {
 describe('isolated config dir keeps the extra plugin enabled (executed)', () => {
   beforeEach(() => {
     SANDBOX = mkdtempSync(join(tmpdir(), 'extrach-'))
-    const claude = join(SANDBOX, 'home', '.claude')
+    // The shared root is the instance's own Claude home (src/claude-home.ts), not <HOME>/.claude.
+    const claude = makeInstanceHome(join(SANDBOX, 'inst'))
+    process.env.NESTOR_CLAUDE_HOME = claude
     mkdirSync(join(claude, 'plugins', 'cache'), { recursive: true })
     writeFileSync(join(claude, 'settings.json'), JSON.stringify({ enabledPlugins: { [TG]: true } }))
     writeFileSync(join(claude, 'plugins', 'installed_plugins.json'), JSON.stringify({ plugins: {} }))
     mkdirSync(join(SANDBOX, 'agents', 'demo'), { recursive: true })
   })
-  afterEach(() => { rmSync(SANDBOX, { recursive: true, force: true }) })
+  afterEach(() => { delete process.env.NESTOR_CLAUDE_HOME; rmSync(SANDBOX, { recursive: true, force: true }) })
 
   it('telegram primary + slack extra: BOTH true, discord false', () => {
     const cfg = ensureIsolatedChannelConfigDir('demo', 'telegram', [SL])!

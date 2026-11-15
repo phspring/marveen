@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { makeInstanceHome } from './helpers/instance-home.js'
 import { execFileSync } from 'node:child_process'
 import {
   mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, statSync,
@@ -132,10 +133,12 @@ describe('HOOKSTRIPFLEET913: the four channel hooks survive the #1307 strip', ()
       realHome = process.env.HOME
       fakeHome = mkdtempSync(join(tmpdir(), 'hsf913-'))
       process.env.HOME = fakeHome
-      mkdirSync(join(fakeHome, '.claude'), { recursive: true })
+      // The clone source is the instance's own Claude home now (src/claude-home.ts), not <HOME>/.claude.
+      makeInstanceHome(join(fakeHome, 'inst-home'))
+      process.env.NESTOR_CLAUDE_HOME = join(fakeHome, 'inst-home')
       // The global clone-source still carries the four (as on the live host
       // before the prune) -- the strip must drop them from the clone.
-      writeFileSync(join(fakeHome, '.claude', 'settings.json'), JSON.stringify({
+      writeFileSync(join(fakeHome, 'inst-home', 'settings.json'), JSON.stringify({
         enabledPlugins: { 'telegram@claude-plugins-official': true },
         hooks: {
           UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'python3 /g/scripts/hooks/telegram_progress.py' }] }],
@@ -148,6 +151,7 @@ describe('HOOKSTRIPFLEET913: the four channel hooks survive the #1307 strip', ()
     })
     afterEach(() => {
       process.env.HOME = realHome
+      delete process.env.NESTOR_CLAUDE_HOME
       rmSync(fakeHome, { recursive: true, force: true })
       rmSync(probeDir, { recursive: true, force: true })
     })
