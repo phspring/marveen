@@ -351,9 +351,17 @@ register_refreshed_schedule() {
 # The three shipped groups, each with its mode (see render_seed_stream). The templated ones need MAIN_AGENT_ID: without
 # it a rendered comparison would be meaningless, so they are skipped.
 seed_refresh_groups() {
-  refresh_untouched_seeds "seed-skills" "$HOME/.claude/skills" "verbatim" "all"
+  # The instance's own Claude home (scripts/lib/claude-home.sh), never the host user's ~/.claude.
+  local _sr_home="${CLAUDE_HOME_DIR:-}"
+  if [ -z "$_sr_home" ]; then
+    . "$INSTALL_DIR/scripts/lib/claude-home.sh"
+    # No home yet = the first update onto this build: update.sh creates it further down (after the build), and its
+    # seeding loop fills it. Refreshing has nothing to compare against until then.
+    _sr_home="$(claude_home_require "$INSTALL_DIR" 2>/dev/null)" || { echo "  seed refresh skipped: the instance has no own Claude home yet"; return 0; }
+  fi
+  refresh_untouched_seeds "seed-skills" "$_sr_home/skills" "verbatim" "all"
   if [ -n "${MAIN_AGENT_ID:-}" ]; then
-    refresh_untouched_seeds "seed-scheduled-tasks" "$HOME/.claude/scheduled-tasks" "template"
+    refresh_untouched_seeds "seed-scheduled-tasks" "$_sr_home/scheduled-tasks" "template"
     # SEEDREFRESH826: the TOP-LEVEL scheduled-tasks/ dir (dream-engine,
     # memoria-heartbeat, reggeli-napindito, ledger-live-drain) was seeded by
     # ensureDefaultScheduledTasks but never refreshed -- a one-shot seed, so
@@ -361,7 +369,7 @@ seed_refresh_groups() {
     # host: 5/5 live seeded copies had drifted. Same untouched-only rule.
     # "seeded", not "template": that seeder rewrites the config's agent field and
     # substitutes nothing in it (#2285, render_seeded_task_config).
-    refresh_untouched_seeds "scheduled-tasks" "$HOME/.claude/scheduled-tasks" "seeded"
+    refresh_untouched_seeds "scheduled-tasks" "$_sr_home/scheduled-tasks" "seeded"
   fi
   return 0
 }

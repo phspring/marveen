@@ -35,6 +35,8 @@ const { tmpHome, realHome } = vi.hoisted(() => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'schedsrc-home-'))
   const prev = process.env.HOME
   process.env.HOME = dir
+  // The scheduled tasks live in the instance's own Claude home now (src/claude-home.ts), resolved at import too.
+  process.env.NESTOR_CLAUDE_HOME = path.join(dir, '.claude-home')
   return { tmpHome: dir, realHome: prev }
 })
 
@@ -160,6 +162,7 @@ beforeAll(() => {
 
 afterAll(() => {
   process.env.HOME = realHome
+  delete process.env.NESTOR_CLAUDE_HOME
   rmSync(tmpHome, { recursive: true, force: true })
 })
 

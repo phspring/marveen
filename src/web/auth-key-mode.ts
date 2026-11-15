@@ -14,6 +14,7 @@
 // - none: neither.
 
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync } from 'node:fs'
+import { instanceDotClaudeJson } from '../claude-home.js'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -57,8 +58,11 @@ function real(p: string): string {
 }
 
 /** True when `dotClaudePath` is (or resolves to) the shared ~/.claude.json. */
-export function isSharedDotClaude(dotClaudePath: string, home: string = homedir()): boolean {
-  return real(dotClaudePath) === real(join(home, '.claude.json'))
+export function isSharedDotClaude(dotClaudePath: string, home: string = homedir(), instanceShared: string = instanceDotClaudeJson()): boolean {
+  // The instance home's file is the shared one now (src/claude-home.ts): every agent without its own dir and the main
+  // agent in instance mode run on it. The host file stays on the list: nothing may stamp it either.
+  const p = real(dotClaudePath)
+  return p === real(join(home, '.claude.json')) || p === real(instanceShared)
 }
 
 /** May an approval stamp for the key be written to `dotClaudePath` in this mode? */

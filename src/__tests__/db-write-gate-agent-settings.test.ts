@@ -252,13 +252,15 @@ describe('the shared ~/.claude user settings, through a symlink and straight (su
     link = join(agent, '.claude-config', 'settings.local.json')
     symlinkSync(homeLocal(), link)
   })
+  // docs/sajat-claude-home.md: the host settings moved to the common list (every agent), so the reason is install-file.
+  const INST = { deny: true, reason: 'install-file' }
   it('a sub-agent: through its config dir\'s symlink, and straight at the target, is denied', () => {
-    expect(call('Write', { file_path: link, content: '{"disableAllHooks": true}' }, true)).toEqual(SUB)
-    expect(call('Edit', { file_path: homeLocal(), old_string: 'a', new_string: 'b' }, true)).toEqual(SUB)
-    expect(call('Write', { file_path: homeSettings(), content: '{}' }, true)).toEqual(SUB)
+    expect(call('Write', { file_path: link, content: '{"disableAllHooks": true}' }, true)).toEqual(INST)
+    expect(call('Edit', { file_path: homeLocal(), old_string: 'a', new_string: 'b' }, true)).toEqual(INST)
+    expect(call('Write', { file_path: homeSettings(), content: '{}' }, true)).toEqual(INST)
     for (const op of ['>', '>|', '>>']) {
-      expect(call('Bash', { command: `echo x ${op} .claude-config/settings.local.json` }, true)).toEqual(SUB)
-      expect(call('Bash', { command: `echo x ${op} ~/.claude/settings.json` }, true)).toEqual(SUB)
+      expect(call('Bash', { command: `echo x ${op} .claude-config/settings.local.json` }, true)).toEqual(INST)
+      expect(call('Bash', { command: `echo x ${op} ~/.claude/settings.json` }, true)).toEqual(INST)
     }
   })
   it('the caller\'s own config settings.local.json (a real file, e.g. a worker\'s) is denied per call', () => {
@@ -272,9 +274,10 @@ describe('the shared ~/.claude user settings, through a symlink and straight (su
     expect(call('Write', { file_path: join(homedir(), '.claude', 'projects', 'x', 'memory', 'note.md'), content: 'x' }, true)).toEqual({ deny: false })
     expect(call('Write', { file_path: join(agent, '.claude-config', 'projects', 'x', 'memory', 'note.md'), content: 'x' }, true)).toEqual({ deny: false })
   })
-  it('control: the main agent writes them (straight and through the symlink)', () => {
-    expect(call('Write', { file_path: homeLocal(), content: '{}' }, false)).toEqual({ deny: false })
-    expect(call('Write', { file_path: homeSettings(), content: '{}' }, false)).toEqual({ deny: false })
-    expect(call('Write', { file_path: link, content: '{}' }, false)).toEqual({ deny: false })
+  // docs/sajat-claude-home.md: the instance never writes the host ~/.claude -- the main agent neither.
+  it('the main agent may not write them either (straight and through the symlink)', () => {
+    expect(call('Write', { file_path: homeLocal(), content: '{}' }, false)).toEqual(INST)
+    expect(call('Write', { file_path: homeSettings(), content: '{}' }, false)).toEqual(INST)
+    expect(call('Write', { file_path: link, content: '{}' }, false)).toEqual(INST)
   })
 })

@@ -37,6 +37,8 @@ vi.mock('../web/schedule-registry.js', () => ({
 const tmpHome = mkdtempSync(join(tmpdir(), 'schedule-once-home-'))
 const realHome = process.env.HOME
 process.env.HOME = tmpHome
+// The scheduled tasks live in the instance's own Claude home now (src/claude-home.ts), resolved at import too.
+process.env.NESTOR_CLAUDE_HOME = join(tmpHome, '.claude-home')
 
 let io: typeof import('../web/scheduled-tasks-io.js')
 let route: typeof import('../web/routes/schedules.js')
@@ -49,6 +51,7 @@ beforeAll(async () => {
 })
 afterAll(() => {
   process.env.HOME = realHome
+  delete process.env.NESTOR_CLAUDE_HOME
   rmSync(tmpHome, { recursive: true, force: true })
 })
 

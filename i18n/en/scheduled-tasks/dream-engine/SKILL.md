@@ -119,9 +119,9 @@ Output (max 1 opportunity): repo URL + relevance + `mode=report|propose`.
 
 ```bash
 # Stale skills: no use log, or pinned: false in the front matter
-ls ~/.claude/skills/ | head
+ls $CLAUDE_CONFIG_DIR/skills/ | head
 # In each SKILL.md, grep -l "pinned: true": these are all protected
-grep -L "^pinned:" ~/.claude/skills/*/SKILL.md  # the skills that have no pinned flag (NOT built in)
+grep -L "^pinned:" $CLAUDE_CONFIG_DIR/skills/*/SKILL.md  # the skills that have no pinned flag (NOT built in)
 ```
 
 Pinned default (always protected): claude-video, frontend-design, docx, skill-creator, skill-factory, skill-install-from-git, init, review, security-review, simplify, fewer-permission-prompts, loop, schedule, claude-api, update-config, keybindings-help, telegram:configure, telegram:access.

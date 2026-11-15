@@ -81,7 +81,7 @@ PY
    measured it: the memories and the cards gave ZERO, while two skill patches and one registry fix
    happened in the meantime, and they left a trace only as file modifications. So list these too:
 ```bash
-find ~/.claude/skills ~/.claude/scheduled-tasks {{INSTALL_DIR}}/.claude/skills -name 'SKILL.md' -newermt "@$SINCE" 2>/dev/null
+find $CLAUDE_CONFIG_DIR/skills $CLAUDE_CONFIG_DIR/scheduled-tasks {{INSTALL_DIR}}/.claude/skills -name 'SKILL.md' -newermt "@$SINCE" 2>/dev/null
 ```
    If your work also writes into another durable registry file (e.g. a findings registry under `store/`), check
    that one too by its modification time. Do not list the fast-changing state files (`*-state.json`).

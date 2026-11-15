@@ -122,10 +122,18 @@ describe('launchLoadsGromzo and mainNeedsAuthConfigDir', () => {
     expect(launchLoadsGromzo('claude --channels plugin:gromzo-channel@gromzo-localx')).toBe(false)
     expect(launchLoadsGromzo('claude --dangerously-skip-permissions')).toBe(false)
   })
-  it('the isolated dir, else CLAUDE_CONFIG_DIR, else ~/.claude', () => {
+  // Old rule: the last fallback was the host ~/.claude. New rule: the instance's own Claude home (src/claude-home.ts).
+  it('the isolated dir, else CLAUDE_CONFIG_DIR, else the instance home (never ~/.claude)', () => {
     expect(mainNeedsAuthConfigDir('/iso', { CLAUDE_CONFIG_DIR: '/env' })).toBe('/iso')
     expect(mainNeedsAuthConfigDir(null, { CLAUDE_CONFIG_DIR: '/env' })).toBe('/env')
-    expect(mainNeedsAuthConfigDir(null, {}).endsWith(join('.claude'))).toBe(true)
+    const prev = process.env.NESTOR_CLAUDE_HOME
+    process.env.NESTOR_CLAUDE_HOME = '/srv/inst/.claude-home'
+    try {
+      expect(mainNeedsAuthConfigDir(null, {})).toBe('/srv/inst/.claude-home')
+    } finally {
+      if (prev === undefined) delete process.env.NESTOR_CLAUDE_HOME
+      else process.env.NESTOR_CLAUDE_HOME = prev
+    }
   })
 })
 

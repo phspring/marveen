@@ -40,10 +40,12 @@ beforeEach(() => {
   realHome = process.env.HOME
   fakeHome = mkdtempSync(join(tmpdir(), 'refuse1305-'))
   process.env.HOME = fakeHome
-  mkdirSync(join(fakeHome, '.claude'), { recursive: true })
+  // The main agent's user scope is the instance's own Claude home now (src/claude-home.ts), not <HOME>/.claude.
+  process.env.NESTOR_CLAUDE_HOME = join(fakeHome, 'inst-home')
+  mkdirSync(join(fakeHome, 'inst-home'), { recursive: true })
   mainSettings = agentSettingsPath(MAIN_AGENT_ID)
   // Sanity: the redirect took, we are sandboxed.
-  expect(mainSettings).toBe(join(fakeHome, '.claude', 'settings.json'))
+  expect(mainSettings).toBe(join(fakeHome, 'inst-home', 'settings.json'))
   writeFileSync(mainSettings, MARKER)
 
   if (existsSync(join(probeDir, 'HANDOFF.md'))) {
@@ -55,6 +57,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.HOME = realHome
+  delete process.env.NESTOR_CLAUDE_HOME
   rmSync(fakeHome, { recursive: true, force: true })
   rmSync(probeDir, { recursive: true, force: true })
 })

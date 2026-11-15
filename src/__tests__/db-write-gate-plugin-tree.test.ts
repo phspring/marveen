@@ -6,8 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 // @ts-expect-error -- plain .mjs hook script, no types
 import { gateDecision, dynamicPluginEntries, claudePluginWrite } from '../../scripts/hooks/db-write-gate.mjs'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync, existsSync } from 'node:fs'
+import { join, dirname, basename } from 'node:path'
 import { tmpdir, homedir } from 'node:os'
 
 let base: string
@@ -25,6 +25,7 @@ afterEach(() => { rmSync(base, { recursive: true, force: true }) })
 
 const H = homedir()
 const SUB = { deny: true, reason: 'subagent-file' }
+const INST = { deny: true, reason: 'install-file' }
 const o = (x: { cwd?: string; subAgent?: boolean; configDir?: string | null } = {}) =>
   ({ root, cwd: x.cwd ?? agent, subAgent: x.subAgent ?? true, projectDir: x.subAgent === false ? root : agent, configDir: x.configDir ?? join(agent, '.claude-config') })
 const write = (p: string, x?: Parameters<typeof o>[0]) => gateDecision('Write', { file_path: p, content: 'x' }, o(x))
@@ -44,12 +45,22 @@ describe('the static targets: a sub-agent may not write them', () => {
     join(H, '.marveen-worker', '.claude-config', 'plugins', 'x.json'),
     join(H, '.marveen-worker-fast', '.claude-config', 'plugins', 'x.json'),
   ]
+  // docs/sajat-claude-home.md: the host ~/.claude trees are on the common list now (every agent): reason install-file
+  // Judged like the gate: by the real path of the deepest existing ancestor (on a real host a worker dir can be a link
+  // into ~/.claude/plugins, and then the common-list reason is the right one).
+  const realOf = (t: string): string => {
+    let p = t
+    const rest: string[] = []
+    while (!existsSync(p) && dirname(p) !== p) { rest.unshift(basename(p)); p = dirname(p) }
+    try { return join(realpathSync(p), ...rest) } catch { return t }
+  }
+  const hostTree = (t: string) => realOf(t).startsWith(realOf(join(H, '.claude')) + '/')
   it('native Write', () => {
-    for (const t of targets()) expect(write(t)).toEqual(SUB)
+    for (const t of targets()) expect(write(t), t).toEqual(hostTree(t) ? INST : SUB)
   })
   it('through the agent\'s own config-dir symlink (the real path lands on the shared tree)', () => {
     symlinkSync(join(H, '.claude', 'plugins', 'cache'), join(agent, '.claude-config', 'plugins', 'cache'))
-    expect(write(join(agent, '.claude-config', 'plugins', 'cache', 'm', 'x.ts'))).toEqual(SUB)
+    expect(write(join(agent, '.claude-config', 'plugins', 'cache', 'm', 'x.ts'))).toEqual(INST)
   })
   it('the caller\'s own config dir plugins, outside the install (a worker), per call', () => {
     const cfg = join(base, 'w', '.claude-config')
@@ -104,8 +115,10 @@ describe('Bash: bare names, ancestors below $HOME, $CLAUDE_CONFIG_DIR', () => {
   it('stated limit (D3): $HOME itself is not an ancestor target', () => {
     expect(bash('rsync -a /tmp/x/ ~/').deny).toBe(false)
   })
-  it('the main agent writes the plugin tree', () => {
-    expect(write(join(H, '.claude', 'plugins', 'cache', 'm', 'x.ts'), { subAgent: false, cwd: root })).toEqual({ deny: false })
+  // docs/sajat-claude-home.md: the instance never writes the host ~/.claude -- the main agent neither. `claude plugin
+  // install` stays free: it writes the plugin tree of its own CLAUDE_CONFIG_DIR (the instance home).
+  it('the main agent may not write the HOST plugin tree; its claude plugin install stays free', () => {
+    expect(write(join(H, '.claude', 'plugins', 'cache', 'm', 'x.ts'), { subAgent: false, cwd: root })).toEqual(INST)
     expect(bash('claude plugin install x@y', { subAgent: false, cwd: root }).deny).toBe(false)
   })
 })

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest'
+import { makeInstanceHome } from './helpers/instance-home.js'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -49,15 +50,19 @@ function resetSandbox(): void {
   rmSync(join(SANDBOX, 'home'), { recursive: true, force: true })
   rmSync(join(SANDBOX, 'agents'), { recursive: true, force: true })
   rmSync(join(SANDBOX, 'project'), { recursive: true, force: true })
-  mkdirSync(join(SANDBOX, 'home', '.claude'), { recursive: true })
-  writeFileSync(join(SANDBOX, 'home', '.claude', 'settings.json'), JSON.stringify({ enabledPlugins: {} }))
+  // The shared root is the instance's own Claude home (src/claude-home.ts), not <HOME>/.claude.
+  rmSync(join(SANDBOX, 'inst'), { recursive: true, force: true })
+  mkdirSync(join(SANDBOX, 'home'), { recursive: true })
+  makeInstanceHome(join(SANDBOX, 'inst'))
+  process.env.NESTOR_CLAUDE_HOME = join(SANDBOX, 'inst')
+  writeFileSync(join(SANDBOX, 'inst', 'settings.json'), JSON.stringify({ enabledPlugins: {} }))
   mkdirSync(join(SANDBOX, 'project', 'store'), { recursive: true })
 }
 function writeProjectMcp(servers: Record<string, unknown>): void {
   writeFileSync(join(SANDBOX, 'project', '.mcp.json'), JSON.stringify({ mcpServers: servers }))
 }
 function writeSharedDotClaude(servers: Record<string, unknown>): void {
-  writeFileSync(join(SANDBOX, 'home', '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, mcpServers: servers }))
+  writeFileSync(join(SANDBOX, 'inst', '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, mcpServers: servers }))
 }
 function agentMcpServers(name: string): string[] {
   const j = JSON.parse(readFileSync(join(SANDBOX, 'agents', name, '.mcp.json'), 'utf-8')) as { mcpServers: Record<string, unknown> }
@@ -70,7 +75,7 @@ function isolatedServers(name: string): string[] {
 }
 
 beforeEach(() => { resetSandbox(); LIST = '' })
-afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }))
+afterAll(() => { delete process.env.NESTOR_CLAUDE_HOME; rmSync(SANDBOX, { recursive: true, force: true }) })
 
 describe('the list itself', () => {
   it('parses a comma list, trims, ignores blanks; an empty setting is the narrow default', () => {

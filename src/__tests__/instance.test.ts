@@ -17,7 +17,8 @@ describe('describeInstance', () => {
     const i = inst('/srv/a', null)
     expect(i).toMatchObject({
       unitId: 'nestor', mainAgentId: 'nestor', channelsSession: 'nestor-channels', port: 3420, host: '127.0.0.1',
-      tmuxServer: 'default', ownClaudeConfig: false, claudeConfig: '/home/u/.claude', node: null,
+      // Old rule: claudeConfig = ~/.claude. New rule: the instance's own home, <root>/.claude-home (src/claude-home.ts).
+      tmuxServer: 'default', ownClaudeConfig: false, claudeConfig: '/srv/a/.claude-home', node: null,
     })
     expect(i.units).toEqual({ dashboard: 'nestor-dashboard', channels: 'nestor-channels' })
     expect(i.tokenPath).toBe('/srv/a/store/.claude-oauth-token')
@@ -71,10 +72,14 @@ describe('findConflicts', () => {
     expect(findConflicts(a, b)).toEqual([])
   })
 
-  it('two instances that both use the shared ~/.claude are told so', () => {
+  // Old rule: two installs without an isolated dir both ran on the host ~/.claude and were told so. New rule: each
+  // runs on its own instance home (<root>/.claude-home), so there is nothing shared to report.
+  it('two instances without an isolated dir no longer share a Claude config: each has its own home', () => {
     const a = inst('/srv/a', 'MAIN_AGENT_ID=a\nWEB_PORT=3420\nTMUX_TMPDIR=/srv/a/tmux\n')
     const b = inst('/srv/b', 'MAIN_AGENT_ID=b\nWEB_PORT=3421\nTMUX_TMPDIR=/srv/b/tmux\n')
-    expect(findConflicts(a, b).map((x) => x.what)).toEqual(['Claude config'])
+    expect(a.claudeConfig).toBe('/srv/a/.claude-home')
+    expect(b.claudeConfig).toBe('/srv/b/.claude-home')
+    expect(findConflicts(a, b).map((x) => x.what)).toEqual([])
   })
 
   it('the same install directory is one error and nothing else', () => {

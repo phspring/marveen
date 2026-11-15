@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs'
+import { instanceClaudeHome } from './claude-home.js'
 import { join } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import {
@@ -29,7 +30,7 @@ import { wrapUntrusted, UNTRUSTED_PREAMBLE } from './prompt-safety.js'
 // We honor TMPDIR via os.tmpdir() as a last-resort fallback so a hardened
 // host with a read-only home still has somewhere to land.
 function ensureDigestCwd(): string {
-  const candidates = [join(homedir(), '.claude', 'tmp', 'marveen-digest'), join(tmpdir(), 'marveen-digest')]
+  const candidates = [join(instanceClaudeHome(), 'tmp', 'marveen-digest'), join(tmpdir(), 'marveen-digest')]
   for (const dir of candidates) {
     try {
       mkdirSync(dir, { recursive: true })
@@ -54,7 +55,7 @@ function ensureDigestCwd(): string {
 // written only if missing so the user can edit it later if needed.
 function ensureDigestConfigDir(): string {
   const candidates = [
-    join(homedir(), '.claude', 'tmp', 'marveen-digest-config'),
+    join(instanceClaudeHome(), 'tmp', 'marveen-digest-config'),
     join(tmpdir(), 'marveen-digest-config'),
   ]
   for (const dir of candidates) {

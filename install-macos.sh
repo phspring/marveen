@@ -669,10 +669,26 @@ INSTALL_STEP="claude-setup"
 # headless session orokre parkol a "Trust this folder" / theme-picker /
 # Bypass Permissions promptokon. Tehat a flag-set FOLY-RA `auth login`
 # ELOTT, hogy ezek a defensive default-ok mindenkeppen a helyukre keruljenek.
-mkdir -p "$HOME/.claude"
+# The instance's OWN Claude home (docs/sajat-claude-home.md): this install never uses the host user's ~/.claude.
+# Exported as CLAUDE_CONFIG_DIR for the rest of the installer, so `claude auth login`, the plugin install and the
+# seeds all work on the instance home.
+# Inline here, not the clone's scripts/lib/claude-home.sh: this is still inside the root boundary (MACROOTFROMCLONE1106,
+# no clone code before the sudo reset). The helper re-checks the same value right after the reset.
+CLAUDE_HOME_DIR="${NESTOR_CLAUDE_HOME:-$INSTALL_DIR/.claude-home}"
+case "$CLAUDE_HOME_DIR" in
+  /*) ;;
+  *) echo -e "  ${RED}✗${NC} NESTOR_CLAUDE_HOME must be an absolute path: $CLAUDE_HOME_DIR"; exit 1 ;;
+esac
+case "$CLAUDE_HOME_DIR/" in
+  "$HOME/"|"$HOME/.claude/"|"$HOME/.claude/"*) echo -e "  ${RED}✗${NC} NESTOR_CLAUDE_HOME must not be the host ~/.claude or home dir: $CLAUDE_HOME_DIR"; exit 1 ;;
+esac
+mkdir -p "$CLAUDE_HOME_DIR/skills" "$CLAUDE_HOME_DIR/scheduled-tasks"
+chmod 700 "$CLAUDE_HOME_DIR"
+[ -f "$CLAUDE_HOME_DIR/.nestor-claude-home" ] || printf '{"root": "%s"}\n' "$INSTALL_DIR" > "$CLAUDE_HOME_DIR/.nestor-claude-home"
+export CLAUDE_CONFIG_DIR="$CLAUDE_HOME_DIR" CLAUDE_HOME_DIR
 /usr/bin/python3 -I -S - <<'PYEOF'
 import json, os, pathlib
-p = pathlib.Path(os.path.expanduser("~/.claude.json"))
+p = pathlib.Path(os.environ["CLAUDE_HOME_DIR"], ".claude.json")
 data = {}
 if p.exists():
     try:
@@ -690,7 +706,7 @@ except Exception:
 PYEOF
 /usr/bin/python3 -I -S - <<'PYEOF'
 import json, os, pathlib
-p = pathlib.Path(os.path.expanduser("~/.claude/settings.json"))
+p = pathlib.Path(os.environ["CLAUDE_HOME_DIR"], "settings.json")
 data = {}
 if p.exists():
     try:
@@ -1042,6 +1058,16 @@ fi
 command /usr/bin/sudo -K 2>/dev/null || true
 unset __MARVEEN_SUDO_PW
 unset -f run_priv
+
+# The shared resolver (scripts/lib/claude-home.sh, realpath-aware) must agree with the inline one used inside the root
+# boundary above; a disagreement (a link into ~/.claude, a .env value) stops the install instead of guessing.
+. "$INSTALL_DIR/scripts/lib/claude-home.sh"
+_ch_check="$(claude_home_path "$INSTALL_DIR")" || { echo -e "  ${RED}✗${NC} NESTOR_CLAUDE_HOME is invalid (see above)"; exit 1; }
+if [ "$_ch_check" != "$(realpath -- "$CLAUDE_HOME_DIR" 2>/dev/null || printf '%s' "$CLAUDE_HOME_DIR")" ]; then
+  echo -e "  ${RED}✗${NC} the instance Claude home disagrees: $CLAUDE_HOME_DIR vs $_ch_check (set NESTOR_CLAUDE_HOME in the environment)"
+  exit 1
+fi
+unset _ch_check
 
 read -rp "$(_t prompt_bot_name)" BOT_NAME
 BOT_NAME=${BOT_NAME:-"Marveen"}
@@ -1432,7 +1458,7 @@ fi
 # slug rather than hardcoded "marveen". Skip task dirs that already exist --
 # never overwrite user customizations.
 SCHED_TPL_DIR="$INSTALL_DIR/templates/scheduled-tasks"
-SCHED_TARGET_DIR="$HOME/.claude/scheduled-tasks"
+SCHED_TARGET_DIR="$CLAUDE_HOME_DIR/scheduled-tasks"
 if [ -d "$SCHED_TPL_DIR" ]; then
   mkdir -p "$SCHED_TARGET_DIR"
   for tpl in "$SCHED_TPL_DIR"/*/; do
@@ -1461,7 +1487,8 @@ if [ -d "$SCHED_TPL_DIR" ]; then
 fi
 
 # Setup channel state directory
-CHANNEL_DIR="$HOME/.claude/channels/$CHANNEL_PROVIDER"
+# Straight into the install-scoped state dir (#915), never the host ~/.claude/channels.
+CHANNEL_DIR="$INSTALL_DIR/.claude/channels/$CHANNEL_PROVIDER"
 # GROMZONOPROVIDER1108: gromzo keeps no channel state here (no token, no access.json), so no empty dir for it.
 [ "$CHANNEL_PROVIDER" = "gromzo" ] || mkdir -p "$CHANNEL_DIR"
 
@@ -1561,7 +1588,7 @@ fi
 cd "$INSTALL_DIR"
 
 # Install skill-factory (self-learning meta-skill)
-SKILLS_DIR="$HOME/.claude/skills"
+SKILLS_DIR="$CLAUDE_HOME_DIR/skills"
 if [ -d "$INSTALL_DIR/skills/skill-factory" ]; then
   mkdir -p "$SKILLS_DIR/skill-factory"
   cp -r "$INSTALL_DIR/skills/skill-factory/"* "$SKILLS_DIR/skill-factory/"
@@ -1665,7 +1692,7 @@ if [ -d "$SEED_SCHED_DIR" ]; then
 
   # Seed bumblebee threat-intel catalogs into ~/.claude/tools/
   BB_SEED_TI="$SEED_SCHED_DIR/bumblebee-hygiene-scan/threat-intel"
-  BB_TARGET_TI="$HOME/.claude/tools/bumblebee-threat-intel"
+  BB_TARGET_TI="$CLAUDE_HOME_DIR/tools/bumblebee-threat-intel"
   if [ -d "$BB_SEED_TI" ] && [ ! -d "$BB_TARGET_TI" ]; then
     mkdir -p "$BB_TARGET_TI"
     cp "$BB_SEED_TI"/*.json "$BB_TARGET_TI/" 2>/dev/null

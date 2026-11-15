@@ -75,7 +75,7 @@ chmod +x "$TMP/bin/systemctl"
 run_park() {
   local name="$1" timer="$2" task="$3" marker="$4" cli="${5:-none}"
   local box="$TMP/$name"
-  mkdir -p "$box/units" "$box/home/.claude/scheduled-tasks/reggeli-napindito" "$box/install/store"
+  mkdir -p "$box/units" "$box/install/.claude-home/scheduled-tasks/reggeli-napindito" "$box/install/store"
   if [ "$cli" != "none" ]; then
     mkdir -p "$box/install/dist/web"
     case "$cli" in
@@ -90,9 +90,9 @@ run_park() {
     echo "$timer" > "$TMP/state.hex-morning.timer"
   fi
   case "$task" in
-    enabled)  printf '{\n  "schedule": "30 7 * * *",\n  "enabled": true\n}\n'  > "$box/home/.claude/scheduled-tasks/reggeli-napindito/task-config.json" ;;
-    disabled) printf '{\n  "schedule": "30 7 * * *",\n  "enabled": false\n}\n' > "$box/home/.claude/scheduled-tasks/reggeli-napindito/task-config.json" ;;
-    missing)  rm -rf "$box/home/.claude/scheduled-tasks/reggeli-napindito" ;;
+    enabled)  printf '{\n  "schedule": "30 7 * * *",\n  "enabled": true\n}\n'  > "$box/install/.claude-home/scheduled-tasks/reggeli-napindito/task-config.json" ;;
+    disabled) printf '{\n  "schedule": "30 7 * * *",\n  "enabled": false\n}\n' > "$box/install/.claude-home/scheduled-tasks/reggeli-napindito/task-config.json" ;;
+    missing)  rm -rf "$box/install/.claude-home/scheduled-tasks/reggeli-napindito" ;;
   esac
   [ "$marker" = "present" ] && echo "parked_at=earlier" > "$box/install/store/.morning-timer-parked"
   PATH="$TMP/bin:$PATH" HOME="$box/home" \

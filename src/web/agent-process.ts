@@ -107,6 +107,7 @@ import { loadProfileTemplate, profileWantsThinChiefHandoff } from './profiles.js
 import { resolveAgentSecurityProfile, readAgentTeam } from './agent-team.js'
 import { readInstanceOf } from './agent-instance.js'
 import { applySkills } from './skill-composition.js'
+import { hasInstanceClaudeHome, instanceClaudeHome, instanceDotClaudeJson, instancePluginsDir, instanceWorkerHome, instanceSettingsPath, NoInstanceHomeError, requireInstanceClaudeHome, sweepHostLinkEntries } from '../claude-home.js'
 import { readSkillAssignments, SKILL_LIBRARY_DIR } from './skill-assignments-store.js'
 import { helperTokenEnv, syncAgentTokenOnStart } from './agent-tokens.js'
 import { enforceStrictPermissionMode, writeAgentSettingsFromProfile, ensureFleetRosterSection, ensureProjectRootInClaudeMd, ensureAutonomySection, ensureSkillsPathTrapSection, ensureSkillSectionCurrent, ensureSystemDirectiveAuthSection, ensureAgentIdHeaderSection, ensureThinChiefHandoffSection, ensureMemorySearchLabelSection, ensureFleetAuthSection, ensureEvidenceSection, ensureMcpListChannelSection, ensureMessageCloseSection, ensureStrictApiSection, ensureApiHelperSection, ensureBackgroundCheckpointSection } from './agent-scaffold.js'
@@ -532,7 +533,12 @@ function maybeAlertSharedConfigCollision(name: string): void {
 //
 // Consequence for a fresh agent: no `projects` entry is provisioned, and Claude Code
 // creates its own inside the isolated config dir. That is the intended end state.
-const ISOLATED_CONFIG_SKIP = new Set(['settings.json', 'plugins', '.credentials.json', 'projects'])
+//
+// `.claude.json` and the home marker: the shared root is the instance home (src/claude-home.ts), itself a Claude
+// config dir, so its `.claude.json` sits INSIDE it (the host's sat next to ~/.claude, never in the loop). Linked,
+// every agent would write its consent / MCP state into the one shared file; each config dir gets its own real copy
+// (step 4 below) instead.
+const ISOLATED_CONFIG_SKIP = new Set(['settings.json', 'plugins', '.credentials.json', 'projects', '.claude.json', '.nestor-claude-home', 'workers'])
 
 export function ensureIsolatedChannelConfigDir(
   name: string,
@@ -1157,7 +1163,7 @@ export function authKeysInEnv(env: unknown): string[] {
 
 function readSharedSettingsEnv(): unknown {
   try {
-    return (JSON.parse(readFileSync(join(homedir(), '.claude', 'settings.json'), 'utf-8')) as { env?: unknown }).env
+    return (JSON.parse(readFileSync(instanceSettingsPath(), 'utf-8')) as { env?: unknown }).env
   } catch {
     return undefined
   }
@@ -1222,6 +1228,13 @@ function applyAgentSkills(cfg: string, name: string): { mayLinkShared: boolean }
   }
 }
 
+/** sweepHostLinkEntries plus a log line naming what went. */
+export function sweepHostLinks(dir: string, name: string): string[] {
+  const removed = sweepHostLinkEntries(dir)
+  if (removed.length) logger.info({ name, dir, removed }, 'isolated-config: removed links into the host ~/.claude')
+  return removed
+}
+
 function provisionIsolatedConfigDir(
   cfg: string,
   cwd: string,
@@ -1230,11 +1243,21 @@ function provisionIsolatedConfigDir(
   extraPluginIds: string[] = [],
 ): string | null {
   try {
-    const realClaude = join(homedir(), '.claude')
-    if (!existsSync(realClaude)) return null
+    // The instance's OWN Claude home is the shared root (src/claude-home.ts), never the host user's ~/.claude: no home
+    // -> no provisioning, and the caller refuses the launch instead of running on the host.
+    let realClaude: string
+    try {
+      realClaude = requireInstanceClaudeHome()
+    } catch (err) {
+      if (err instanceof NoInstanceHomeError) {
+        logger.error({ name, home: err.home }, `isolated-config: ${err.message}`)
+        return null
+      }
+      throw err
+    }
     mkdirSync(cfg, { recursive: true })
 
-    // 1. Symlink every top-level ~/.claude entry except the ones we own or that
+    // 1. Symlink every top-level instance-home entry except the ones we own or that
     //    must stay out of the isolated dir (.credentials.json -- see header). A
     //    stale non-symlink (e.g. a prior copy, or a .credentials.json left by an
     //    earlier build) is removed so it can never shadow the env-var auth.
@@ -1273,6 +1296,14 @@ function provisionIsolatedConfigDir(
         catch (err) { logger.warn({ err, entry, name }, 'isolated-config: symlink failed') }
       }
     }
+
+    // 1b. Nothing in this dir may still lead into the host user's ~/.claude: an older build linked EVERY host entry,
+    //     and the loop above only visits what the instance home holds, so a host link with no home counterpart
+    //     (history.jsonl, CLAUDE.md, channels, ...) would otherwise survive forever. Only the LINK is removed, never
+    //     what it points at. A linked .claude.json goes too (step 4 gives the dir its own real copy).
+    sweepHostLinks(cfg, name)
+    sweepHostLinks(join(cfg, 'plugins'), name)
+    try { if (lstatSync(join(cfg, '.claude.json')).isSymbolicLink()) rmSync(join(cfg, '.claude.json'), { force: true }) } catch { /* absent */ }
 
     // 2. Own settings.json: copy the shared one (keeps hooks etc.) but force
     //    enabledPlugins to this agent's own provider only (all other channel
@@ -1448,7 +1479,7 @@ function provisionIsolatedConfigDir(
       // into its config dir has to stay readable AND writable for that user.
       const perUser = readAgentRunAsUser(name) != null
       const dotClaude = join(cfg, '.claude.json')
-      const sharedDot = join(homedir(), '.claude.json')
+      const sharedDot = instanceDotClaudeJson(realClaude)
       if (!existsSync(dotClaude)) {
         let seed: Record<string, unknown> = { hasCompletedOnboarding: true }
         let notInheritedOnSeed: string[] = []
@@ -1495,7 +1526,7 @@ function provisionIsolatedConfigDir(
 
     return cfg
   } catch (err) {
-    logger.warn({ err, name }, 'isolated-config: provisioning failed, falling back to shared ~/.claude')
+    logger.warn({ err, name }, 'isolated-config: provisioning failed; the agent is not started on a fallback root')
     return null
   }
 }
@@ -1517,8 +1548,10 @@ function provisionIsolatedConfigDir(
 // Claude Code process is the leading suspect for how the key got clobbered in
 // the first place. An unparseable file is left alone -- Claude Code owns its
 // recovery, and overwriting would destroy MCP/project state.
-export function ensureSharedClaudeOnboarded(dotClaudePath: string = join(homedir(), '.claude.json')): boolean {
+export function ensureSharedClaudeOnboarded(dotClaudePath: string = instanceDotClaudeJson()): boolean {
   try {
+    // The instance home's file (src/claude-home.ts); never created here when the home itself is missing.
+    if (!existsSync(dirname(dotClaudePath))) return false
     if (!existsSync(dotClaudePath)) {
       atomicWriteFileSync(dotClaudePath, JSON.stringify({ hasCompletedOnboarding: true }, null, 2) + '\n', { mode: 0o600 })
       logger.info({ dotClaudePath }, 'shared-config: created ~/.claude.json with hasCompletedOnboarding')
@@ -1816,9 +1849,9 @@ export function stampFableOverageConsentSharedRoots(): void {
   const mainDir = ensureMainAgentIsolatedConfigDir()
   const candidates = [
     mainDir ? join(mainDir, '.claude.json') : null,
-    join(homedir(), '.claude.json'),
-    join(process.env.MARVEEN_WORKER_DIR || join(homedir(), '.marveen-worker'), '.claude-config', '.claude.json'),
-    join(process.env.MARVEEN_WORKER_DIR_FAST || join(homedir(), '.marveen-worker-fast'), '.claude-config', '.claude.json'),
+    instanceDotClaudeJson(),
+    join(process.env.MARVEEN_WORKER_DIR || instanceWorkerHome(MAIN_AGENT_ID, 'slow'), '.claude-config', '.claude.json'),
+    join(process.env.MARVEEN_WORKER_DIR_FAST || instanceWorkerHome(MAIN_AGENT_ID, 'fast'), '.claude-config', '.claude.json'),
   ]
   for (const p of candidates) {
     if (p && existsSync(p)) stampFableOverageConsent(p)
@@ -2465,7 +2498,7 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
   // ~/.claude/plugins BEFORE this agent's isolated config is seeded from it (gromzo-marketplace.ts).
   if (extraLaunch.gromzo === 'on') {
     const reg = ensureGromzoMarketplace({
-      pluginsDir: join(homedir(), '.claude', 'plugins'),
+      pluginsDir: instancePluginsDir(),
       pluginRoot: join(homedir(), 'marveen-local-plugins', 'gromzo'),
       projectRoot: PROJECT_ROOT,
     })
@@ -2716,7 +2749,7 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
     let useMcpJsonForChannel = false
     if (SUBAGENT_INBOX_TEE && hasChannel && agentProvider === 'telegram' && name !== MAIN_AGENT_ID) {
       try {
-        const pluginCacheDir = join(homedir(), '.claude', 'plugins', 'cache', 'claude-plugins-official', 'telegram')
+        const pluginCacheDir = join(instancePluginsDir(), 'cache', 'claude-plugins-official', 'telegram')
         const versions = existsSync(pluginCacheDir)
           ? readdirSync(pluginCacheDir).filter(v => /^\d+\.\d+\.\d+$/.test(v)).sort().reverse()
           : []
@@ -3061,7 +3094,7 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
     if (isClaude && authMode === 'api' && !claudeConfigDir && keyMode !== 'keyonly' && name !== MAIN_AGENT_ID) {
       const isolated = ensureIsolatedChannelConfigDir(name, hasChannel ? agentProvider : null, extraLaunch.pluginIds)
       const copied = isolated
-        ? copyProjectsOnce(join(homedir(), '.claude', 'projects'), join(isolated, 'projects'), encodeClaudeProjectDir(dir))
+        ? copyProjectsOnce(join(requireInstanceClaudeHome(), 'projects'), join(isolated, 'projects'), encodeClaudeProjectDir(dir))
         : false
       if (!isolated || !copied || !isolatedDirReady(isolated)) {
         logger.error({ name, isolated, copied }, 'authMode=api: isolated config dir could not be provisioned (dir, project copy or onboarding state) -- agent NOT started; the shared ~/.claude.json must not carry its key approval')
@@ -3098,28 +3131,32 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
         'oauthTokenFile: own setup-token exported instead of the fleet token',
       )
     }
+    // An agent with no config dir of its own runs on the INSTANCE's shared root (src/claude-home.ts), never on the
+    // host user's ~/.claude: an empty CLAUDE_CONFIG_DIR would make Claude Code use the host. No instance home ->
+    // the agent is not started (no fallback).
+    if (!claudeConfigDir) {
+      try {
+        claudeConfigDir = requireInstanceClaudeHome()
+      } catch (err) {
+        if (!(err instanceof NoInstanceHomeError)) throw err
+        logger.error({ name, home: err.home }, `agent NOT started: ${err.message}`)
+        return { ok: false, error: err.message }
+      }
+    }
+    const ownDotClaude = join(claudeConfigDir, '.claude.json')
     // Per-project trust pre-seed in the config root this session will ACTUALLY
-    // use (isolated CLAUDE_CONFIG_DIR when set, shared ~/.claude.json
-    // otherwise). Without it a fresh install's first launch of each agent
+    // use. Without it a fresh install's first launch of each agent
     // parks on the "Do you trust the files in this folder?" dialog -- see
     // stampProjectTrustForDir.
-    stampProjectTrustForDir(
-      claudeConfigDir ? join(claudeConfigDir, '.claude.json') : join(homedir(), '.claude.json'),
-      dir,
-    )
+    stampProjectTrustForDir(ownDotClaude, dir)
     // Same target file: pre-acknowledge the Fable usage-credit consent so the
     // model-switch dialog (default: Sonnet) never renders -- see
     // stampFableOverageConsent for the drift root-cause chain.
-    stampFableOverageConsent(
-      claudeConfigDir ? join(claudeConfigDir, '.claude.json') : join(homedir(), '.claude.json'),
-    )
+    stampFableOverageConsent(ownDotClaude)
     // Pre-approve ANTHROPIC_API_KEY for x-api-key custom providers so the
     // "Detected a custom API key" TUI prompt never blocks a --channels agent.
     if (customApiKeyForApproval) {
-      stampCustomApiKeyApproval(
-        claudeConfigDir ? join(claudeConfigDir, '.claude.json') : join(homedir(), '.claude.json'),
-        customApiKeyForApproval,
-      )
+      stampCustomApiKeyApproval(ownDotClaude, customApiKeyForApproval)
     }
     // APIKEYSCOPE1107: the API key's approval stamp, so the "Detected a custom API key" prompt (default No) never
     // stops the pane: an authMode=api agent's key, or on a key-only install the host key for a fleet agent. Into the
@@ -3139,14 +3176,16 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
       }
     }
     if (stampKey) {
-      const target = claudeConfigDir ? join(claudeConfigDir, '.claude.json') : join(homedir(), '.claude.json')
-      if (!stampAllowed(target, keyMode)) {
-        logger.error({ name, keyMode }, 'API key approval would land in the shared ~/.claude.json on a subscription install -- agent NOT started')
-        return { ok: false, error: 'API key approval refused for the shared ~/.claude.json' }
+      if (!stampAllowed(ownDotClaude, keyMode)) {
+        logger.error({ name, keyMode }, 'API key approval would land in the shared .claude.json on a subscription install -- agent NOT started')
+        return { ok: false, error: 'API key approval refused for the shared .claude.json' }
       }
-      stampCustomApiKeyApproval(target, stampKey)
+      stampCustomApiKeyApproval(ownDotClaude, stampKey)
     }
-    const claudeConfigEnv = claudeConfigDir ? `export CLAUDE_CONFIG_DIR="${claudeConfigDir}" && ` : ''
+    // NESTOR_CLAUDE_HOME rides along (docs/sajat-claude-home.md): the instance's own home, so a script or hook the agent
+    // runs knows where this install saves -- from the environment, not from an instruction it may not follow.
+    const instHome = instanceClaudeHome()
+    const claudeConfigEnv = `export CLAUDE_CONFIG_DIR="${claudeConfigDir}"${hasInstanceClaudeHome(instHome) ? ` NESTOR_CLAUDE_HOME=${shSingleQuote(instHome)}` : ''} && `
     // VOICETOKENLEAK1101 PR-A0: scripts/marveen-api.sh reads the agent's OWN token when it has one (AGENT_TOKENS).
     const helperTokenEnvPiece = helperTokenEnv(name, shSingleQuote)
     // `--continue` requires an existing session; on a brand-new agent the
@@ -3159,9 +3198,7 @@ export async function startAgentProcess(name: string, opts: StartOpts = {}): Pro
     // named a directory that never exists on a path with an underscore or a
     // space, so every launch on such an install looked like a first launch
     // and never continued its session.
-    const projectsRoot = claudeConfigDir
-      ? join(claudeConfigDir, 'projects')
-      : join(homedir(), '.claude', 'projects')
+    const projectsRoot = join(claudeConfigDir, 'projects')
     const encodedProject = encodeClaudeProjectDir(dir)
     const hasPriorSession = existsSync(join(projectsRoot, encodedProject))
     // opts.fresh forces a brand-new conversation (auto-restart 'fresh' mode):

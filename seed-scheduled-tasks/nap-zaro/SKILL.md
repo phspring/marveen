@@ -81,7 +81,7 @@ PY
    mérte: az emlékek és a kártyák NULLÁT adtak, közben két skill-patch és egy nyilvántartó-javítás
    történt, amelyek csak fájl-módosításként hagytak nyomot. Ezért ezeket is listázd:
 ```bash
-find ~/.claude/skills ~/.claude/scheduled-tasks {{INSTALL_DIR}}/.claude/skills -name 'SKILL.md' -newermt "@$SINCE" 2>/dev/null
+find $CLAUDE_CONFIG_DIR/skills $CLAUDE_CONFIG_DIR/scheduled-tasks {{INSTALL_DIR}}/.claude/skills -name 'SKILL.md' -newermt "@$SINCE" 2>/dev/null
 ```
    Ha a munkád más, tartós nyilvántartó fájlba is ír (pl. lelet-nyilvántartó a `store/` alatt), azt is nézd
    meg a módosítási idejével. A gyorsan változó állapot-fájlokat (`*-state.json`) ne sorold fel.

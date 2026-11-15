@@ -21,6 +21,7 @@ import {
   stampCustomApiKeyApproval,
 } from './agent-process.js'
 import { withSessionSendLock } from './session-send-lock.js'
+import { hasInstanceClaudeHome, instanceClaudeHome, instanceDotClaudeJson, instanceWorkerHome, sweepHostLinkEntries } from '../claude-home.js'
 import { readClaudeCodeOauthJson } from './claude-credentials.js'
 import { detectPaneState } from '../pane-state.js'
 import { notifyChannel } from '../notify.js'
@@ -161,7 +162,8 @@ const WORKER_DISABLED_PLUGINS = ['telegram', 'slack-channel']
 // fast session on the "Do you trust the files in this folder?" modal until a
 // human answered it in the terminal. Nothing was wrong with the stamping code:
 // its write was simply being overwritten through the alias.
-const WORKER_CONFIG_SKIP = new Set(['settings.json', 'CLAUDE.md', '.claude.json', '.DS_Store', '.lock'])
+// 'workers' and the marker: the worker homes and the home marker live inside the instance home (src/claude-home.ts).
+const WORKER_CONFIG_SKIP = new Set(['settings.json', 'CLAUDE.md', '.claude.json', '.DS_Store', '.lock', 'workers', '.nestor-claude-home'])
 
 // --- Per-session context ------------------------------------------------------
 //
@@ -207,7 +209,9 @@ export function makeWorkerCtx(session: string, homeDir: string, modelOverride: s
  * which hashes to its own Keychain service automatically.
  */
 export function workerHomeFor(agentId: string, variant: 'slow' | 'fast'): string {
-  return join(homedir(), `.${agentId}-worker${variant === 'fast' ? '-fast' : ''}`)
+  // Inside the instance's own Claude home (src/claude-home.ts), not ~/.<id>-worker: two instances whose main agent
+  // has the same name used to share one worker home and its config dir.
+  return instanceWorkerHome(agentId, variant)
 }
 
 /**
@@ -572,8 +576,14 @@ export function ensureWorkerCwd(ctx: WorkerCtx = ctxSlow): void {
 
   if (!existsSync(ctx.configDir)) mkdirSync(ctx.configDir, { recursive: true })
 
-  const realClaude = join(homedir(), '.claude')
-  if (existsSync(realClaude)) {
+  // The instance home is the shared root, never the host user's ~/.claude (src/claude-home.ts). A link an older build
+  // made into the host goes first: the loop below keeps any existing link without checking where it leads.
+  const sweptHost = sweepHostLinkEntries(ctx.configDir)
+  if (sweptHost.length) logger.info({ dir: ctx.configDir, removed: sweptHost }, 'worker: removed links into the host ~/.claude')
+  const realClaude = instanceClaudeHome()
+  if (!hasInstanceClaudeHome(realClaude)) {
+    logger.error({ home: realClaude }, 'worker: the instance has no own Claude home (run `nestor migrate-claude-home`); nothing is linked from the host')
+  } else {
     // With a fleet setup-token present the worker authenticates from the
     // CLAUDE_CODE_OAUTH_TOKEN env injected at launch (env strictly overrides
     // the credentials file anyway); symlinking the shared rotating
@@ -624,7 +634,7 @@ export function ensureWorkerCwd(ctx: WorkerCtx = ctxSlow): void {
   // --dangerously-skip-permissions) reaches its prompt without a blocking modal.
   // WORKERMCPSEND1104 part 2: the kept mail server's non-reading tools denied by name; disableAllHooks and env dropped.
   // The same kept server is the ONLY entry of the strict MCP config the worker is launched with.
-  const keptMcp = existsSync(join(homedir(), '.claude.json')) ? workerMcpServers() : {}
+  const keptMcp = existsSync(instanceDotClaudeJson()) ? workerMcpServers() : {}
   const mailServers = Object.keys(keptMcp)
   writeFileSync(workerMcpConfigPath(ctx), JSON.stringify({ mcpServers: keptMcp }, null, 2) + '\n', { mode: 0o600 })
   writeFileSync(settingsPath, JSON.stringify(withWorkerGates(withWorkerMailDeny({ ...current, enabledPlugins, skipDangerousModePermissionPrompt: true }, mailServers)), null, 2) + '\n')
@@ -646,7 +656,7 @@ export function ensureWorkerCwd(ctx: WorkerCtx = ctxSlow): void {
     // the shared file forever. Same guard settings.json has had all along.
     const workerClaudeJson = join(ctx.configDir, '.claude.json')
     if (lstatSyncSafe(workerClaudeJson)?.isSymbolicLink()) rmSync(workerClaudeJson, { force: true })
-    const homeClaudeJson = join(homedir(), '.claude.json')
+    const homeClaudeJson = instanceDotClaudeJson()
     const parsed: { projects?: Record<string, unknown>; hasCompletedOnboarding?: boolean; [k: string]: unknown } =
       existsSync(homeClaudeJson) ? JSON.parse(readFileSync(homeClaudeJson, 'utf-8')) : {}
     const keys = new Set<string>([ctx.home])
@@ -807,7 +817,7 @@ export function withWorkerMailDeny(settings: WorkerSettings, mailServers: string
 }
 
 /** The MCP servers a worker keeps (the allowlisted mail server), from the host's ~/.claude.json; none on any error. */
-export function workerMcpServers(hostClaudeJson: string = join(homedir(), '.claude.json'), npxPath: string | null = tryResolveFromPath('npx')): Record<string, unknown> {
+export function workerMcpServers(hostClaudeJson: string = instanceDotClaudeJson(), npxPath: string | null = tryResolveFromPath('npx')): Record<string, unknown> {
   try {
     const parsed = JSON.parse(readFileSync(hostClaudeJson, 'utf-8')) as { projects?: Record<string, { mcpServers?: unknown }> }
     return filterWorkerMcpServers(parsed.projects?.[PROJECT_ROOT]?.mcpServers, npxPath).kept
@@ -817,7 +827,7 @@ export function workerMcpServers(hostClaudeJson: string = join(homedir(), '.clau
 }
 
 /** The names of the mail servers a worker keeps (none on any read error). */
-export function workerMailServerNames(hostClaudeJson: string = join(homedir(), '.claude.json'), npxPath: string | null = tryResolveFromPath('npx')): string[] {
+export function workerMailServerNames(hostClaudeJson: string = instanceDotClaudeJson(), npxPath: string | null = tryResolveFromPath('npx')): string[] {
   return Object.keys(workerMcpServers(hostClaudeJson, npxPath))
 }
 

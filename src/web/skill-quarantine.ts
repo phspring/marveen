@@ -5,6 +5,7 @@
 // this module, the two API routes that bring new skill content in went live
 // on the spot: POST /api/skills wrote an LLM-generated SKILL.md straight into
 // the global root, and POST /api/skills/import unzipped an uploaded archive
+import { instanceSkillsDir } from '../claude-home.js'
 // there after structural checks only (path traversal, name clash, symlinks,
 // a SKILL.md somewhere). The text, and any script shipped next to it, was never
 // looked at. The per-agent twins (/api/agents/:name/skills and .../import) did
@@ -150,7 +151,7 @@ export function pendingRoot(): string {
 }
 
 export function globalSkillsRoot(): string {
-  return join(homedir(), '.claude', 'skills')
+  return instanceSkillsDir()
 }
 
 // The live root a target resolves to. The main agent's own root IS the

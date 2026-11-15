@@ -55,7 +55,9 @@ const MARKER_BEGIN = '<!-- BEGIN GENERATED: skills-path-trap (auto-generated, do
 const MARKER_END = '<!-- END GENERATED: skills-path-trap -->'
 // The measuring command: it falls back to ~/.claude when CLAUDE_CONFIG_DIR is empty (a DEFAULT install,
 // MAIN_AGENT_ISOLATED_CONFIG=0), where the old form ran `ls -ld /skills` (upstream review of #1563).
-const MEASURE = 'echo "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; ls -ld "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"'
+// docs/sajat-claude-home.md: the launcher always exports CLAUDE_CONFIG_DIR (the instance home or an own isolated dir),
+// so the measurement no longer falls back to the host ~/.claude.
+const MEASURE = 'echo "$CLAUDE_CONFIG_DIR"; ls -ld "$CLAUDE_CONFIG_DIR/skills"'
 
 function setup(agentName: string, content: string) {
   const dir = join(tmpRoot, 'agents', agentName)
@@ -79,7 +81,8 @@ describe('ensureSkillsPathTrapSection', () => {
     // BOTH root names appear, so neither reads as "the" trap path.
     expect(out).toContain('.claude-config')
     expect(out).toContain('.channels-config')
-    expect(out).toContain('SYMLINK a')
+    // The skills entry leads to the install's global skills folder (a link, or a composed dir).
+    expect(out).toContain('a telepítés globális skill-mappájára mutat')
     // A sub-agent DOES have a private dir, and the body says where.
     expect(out).toContain('agents/<a-te-neved>/.claude/skills')
     // Existing content untouched.
@@ -105,12 +108,24 @@ describe('ensureSkillsPathTrapSection', () => {
     expect(out).toContain(MEASURE)
   })
 
-  it('says what an EMPTY $CLAUDE_CONFIG_DIR means, and never runs ls on "/skills"', () => {
-    // A default install has no isolated root: the variable is empty, the root is ~/.claude itself.
+  // docs/sajat-claude-home.md: the old rule (an EMPTY variable means the root is the host ~/.claude, so the command
+  // fell back to it) is gone. CLAUDE_CONFIG_DIR is always set, the body says so, names the install's own home, and
+  // tells the reader the host ~/.claude is never used.
+  it('says $CLAUDE_CONFIG_DIR is always set, names the instance home, and rules out the host ~/.claude', () => {
+    // The default home (<PROJECT_ROOT>/.claude-home, PROJECT_ROOT mocked to tmpRoot): the suite seam sets a scratch
+    // NESTOR_CLAUDE_HOME for every file, so this test takes it away for its own render and puts it back.
+    const seam = process.env.NESTOR_CLAUDE_HOME
+    delete process.env.NESTOR_CLAUDE_HOME
+    try {
     for (const [who, text] of [['sub', (setup('agent-b', '# B\n'), ensureSkillsPathTrapSection('agent-b'), read('agent-b'))],
                                ['main', (writeFileSync(join(tmpRoot, 'CLAUDE.md'), '# Main\n', 'utf-8'), ensureSkillsPathTrapSection('agent-a'), readFileSync(join(tmpRoot, 'CLAUDE.md'), 'utf-8'))]]) {
-      expect({ who, empty: text.includes('ÜRES') && text.includes('maga a `~/.claude`, és annak `skills` mappája a globális') }).toEqual({ who, empty: true })
-      expect({ who, bare: text.includes('"$CLAUDE_CONFIG_DIR/skills"') }).toEqual({ who, bare: false })
+      expect({ who, always: text.includes('MINDIG be van állítva') }).toEqual({ who, always: true })
+      expect({ who, home: text.includes(join(tmpRoot, '.claude-home'))  /* PROJECT_ROOT is mocked to tmpRoot: the default home */ }).toEqual({ who, home: true })
+      expect({ who, never: text.includes('`~/.claude` mappáját ez a telepítés SOHA nem használja') }).toEqual({ who, never: true })
+      expect({ who, fallback: text.includes('${CLAUDE_CONFIG_DIR:-$HOME/.claude}') }).toEqual({ who, fallback: false })
+    }
+    } finally {
+      if (seam !== undefined) process.env.NESTOR_CLAUDE_HOME = seam
     }
   })
 

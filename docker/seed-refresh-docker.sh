@@ -88,11 +88,11 @@ docker_seed_refresh() {
     for _dd_try in "seed-scheduled-tasks:template" "scheduled-tasks:seeded"; do
       if [ -d "$INSTALL_DIR/${_dd_try%%:*}/$_dd_name" ]; then _dd_src="$INSTALL_DIR/${_dd_try%%:*}/$_dd_name"; _dd_mode="${_dd_try#*:}"; break; fi
     done
-    [ -n "$_dd_src" ] && [ -d "$HOME/.claude/scheduled-tasks/$_dd_name" ] || continue
+    [ -n "$_dd_src" ] && [ -d "${CLAUDE_HOME_DIR:?}/scheduled-tasks/$_dd_name" ] || continue
     case "$(cat "$_dd_rec")" in 0) _dd_pre=1 ;; 1) _dd_pre=0 ;; *) _dd_pre=u ;; esac
-    register_refreshed_schedule "$_dd_name" "$_dd_pre" "$HOME/.claude/scheduled-tasks/$_dd_name" "$_dd_src" "$_dd_mode"
+    register_refreshed_schedule "$_dd_name" "$_dd_pre" "${CLAUDE_HOME_DIR:?}/scheduled-tasks/$_dd_name" "$_dd_src" "$_dd_mode"
   done
-  if find "$HOME/.claude/skills" "$HOME/.claude/scheduled-tasks" -name '*.seedtmp' 2>/dev/null | grep -q .; then
+  if find "${CLAUDE_HOME_DIR:?}/skills" "${CLAUDE_HOME_DIR:?}/scheduled-tasks" -name '*.seedtmp' 2>/dev/null | grep -q .; then
     echo "seed-refresh: WARN: a write did not finish (a .seedtmp is left); the snapshot is kept for the next start"
     return 1
   fi

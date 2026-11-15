@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
+import { instanceSkillsDir } from '../../claude-home.js'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PROJECT_ROOT, MAIN_AGENT_ID, currentBotName } from '../../config.js'
@@ -63,7 +64,7 @@ export async function tryHandleOverview(ctx: RouteContext): Promise<boolean> {
 
     let skillCount = 0
     let skillsToday = 0
-    const skillsDir = join(homedir(), '.claude', 'skills')
+    const skillsDir = instanceSkillsDir()
     if (existsSync(skillsDir)) {
       for (const entry of readdirSync(skillsDir)) {
         const skillFile = join(skillsDir, entry, 'SKILL.md')

@@ -17,6 +17,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { useInstanceHome } from './helpers/instance-home.js'
 import { join } from 'node:path'
 import { ensureIsolatedChannelConfigDir } from '../web/agent-process.js'
 import { PROJECT_ROOT } from '../config.js'
@@ -26,6 +27,7 @@ const probeDir = join(PROJECT_ROOT, 'agents', PROBE)
 const isolatedSettings = join(probeDir, '.claude-config', 'settings.json')
 
 let fakeHome: string
+let restoreHome: () => void = () => {}
 let realHome: string | undefined
 
 const SHARED = {
@@ -46,8 +48,9 @@ beforeEach(() => {
   realHome = process.env.HOME
   fakeHome = mkdtempSync(join(tmpdir(), 'hookstrip-'))
   process.env.HOME = fakeHome
-  mkdirSync(join(fakeHome, '.claude'), { recursive: true })
-  writeFileSync(join(fakeHome, '.claude', 'settings.json'), JSON.stringify(SHARED))
+  // The shared root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude.
+  restoreHome = useInstanceHome(join(fakeHome, 'inst-home'))
+  writeFileSync(join(fakeHome, 'inst-home', 'settings.json'), JSON.stringify(SHARED))
 
   if (existsSync(join(probeDir, 'HANDOFF.md'))) {
     throw new Error(`refusing: agents/${PROBE} looks like a live agent`)
@@ -58,6 +61,7 @@ beforeEach(() => {
 
 afterEach(() => {
   process.env.HOME = realHome
+  restoreHome()
   rmSync(fakeHome, { recursive: true, force: true })
   rmSync(probeDir, { recursive: true, force: true })
 })
@@ -98,7 +102,7 @@ describe('#1305: isolated-config clone strips hooks', () => {
 // from the shared file, nor survive there from an older copy.
 describe('isolated-config clone drops disableAllHooks', () => {
   it('a shared disableAllHooks does not reach the clone', () => {
-    writeFileSync(join(fakeHome, '.claude', 'settings.json'), JSON.stringify({ ...SHARED, disableAllHooks: true }))
+    writeFileSync(join(fakeHome, 'inst-home', 'settings.json'), JSON.stringify({ ...SHARED, disableAllHooks: true }))
     expect(ensureIsolatedChannelConfigDir(PROBE, null)).not.toBeNull()
     const settings = readIsolated()
     expect('disableAllHooks' in settings).toBe(false)

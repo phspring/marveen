@@ -111,6 +111,8 @@ __pycache__/
 # Claude Code Channels runtime config/session dir (sessions, history, tokens,
 # plugins, skills). Per-install runtime state -- never source, never commit.
 .channels-config/
+# The instance's own Claude home (src/claude-home.ts): login, skills, plugins, transcripts -- never committed.
+.claude-home/
 
 # EVIDGUARD818: captured output never belongs in the repo (a key leaked from
 # .pre-ship-evidence in 2026-07). The secret gate blocks these paths too; this

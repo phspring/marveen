@@ -45,19 +45,24 @@ const NEW: Files = {
 
 function volume(opts: { installed: Files; verify?: Record<string, number>; registerFails?: boolean }) {
   const base = mkdtempSync(join(tmpdir(), 'dseed-'))
-  const install = join(base, 'opt-marveen'); const meta = join(base, 'opt-marveen-docker'); const home = join(base, 'home'); const log = join(base, 'cli.log')
-  mkdirSync(install, { recursive: true }); mkdirSync(meta, { recursive: true }); mkdirSync(join(home, '.claude', 'skills'), { recursive: true })
+  const install = join(base, 'opt-marveen'); const meta = join(base, 'opt-marveen-docker'); const log = join(base, 'cli.log')
+  // The instance's own Claude home (docs/sajat-claude-home.md): <install>/.claude-home with its marker. first-boot
+  // creates it and exports CLAUDE_HOME_DIR before the refresh block; the volume's seeded copies live there now.
+  const home = join(install, '.claude-home')
+  const hostHome = join(base, 'home'); mkdirSync(hostHome, { recursive: true })
+  mkdirSync(install, { recursive: true }); mkdirSync(meta, { recursive: true }); mkdirSync(join(home, 'skills'), { recursive: true })
   put(install, OLD)
   writeFileSync(join(install, '.image-id'), 'old-image\n'); writeFileSync(join(meta, 'image.id'), 'new-image\n')
   cpSync(join(ROOT, 'docker', 'seed-snapshot.sh'), join(meta, 'seed-snapshot.sh')); cpSync(join(ROOT, 'docker', 'seed-refresh-docker.sh'), join(meta, 'seed-refresh-docker.sh'))
   writeFileSync(join(install, '.env'), `MAIN_AGENT_ID=marveen\nOWNER_NAME=${NOW.owner}\nBOT_NAME=${NOW.bot}\nAGENT_TEXT_LANG=en\n`)
-  put(home, Object.fromEntries(Object.entries(opts.installed).map(([k, v]) => [join('.claude', k), v])))
+  put(home, Object.fromEntries(Object.entries(opts.installed).map(([k, v]) => [k, v])))
   const verify = opts.verify ?? { taskA: 0, taskB: 1, topC: 0 }
   put(install, { 'dist/package.json': '{"type":"commonjs"}\n', 'dist/web/schedule-registry-cli.js': `const fs=require('fs');fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ')+'\\n');
 const [c,...a]=process.argv.slice(2);const v=${JSON.stringify(verify)};
 if(c==='verify'){const n=a[0]; if(v[n]===0){console.log('ok '+n);process.exit(0)} console.log('unregistered '+n);process.exit(1)}
 if(c==='register'){process.exit(${opts.registerFails ? 1 : 0})} process.exit(0)\n` })
-  return { base, install, meta, home, log }
+  writeFileSync(join(home, '.nestor-claude-home'), JSON.stringify({ root: install }) + '\n')
+  return { base, install, meta, home, hostHome, log }
 }
 type Vol = ReturnType<typeof volume>
 
@@ -77,10 +82,10 @@ function firstBootRefresh(v: Vol, extra = ''): { out: string; code: number } {
     'env_val() { grep -m1 "^$1=" .env | cut -d= -f2-; }', 'OWNER_NAME="$(env_val OWNER_NAME)"; BOT_NAME="$(env_val BOT_NAME)"; AGENT_ID="$(env_val MAIN_AGENT_ID)"; WEB_PORT=3420',
     'SEED_LANG=hu', 'if [ -f scripts/lib/seed-lang.sh ]; then . scripts/lib/seed-lang.sh; SEED_LANG="$(seed_lang "$INSTALL_DIR")"; fi',
     '. scripts/lib/seed-refresh.sh', extra, REFRESH_BLOCK, 'echo "first-boot rc=$?"'].join('\n')
-  const r = spawnSync('bash', ['-c', script], { env: { PATH: process.env.PATH, HOME: v.home, MARVEEN_DOCKER_DIR: v.meta, LANG: 'C.UTF-8' }, encoding: 'utf-8' })
+  const r = spawnSync('bash', ['-c', script], { env: { PATH: process.env.PATH, HOME: v.hostHome, CLAUDE_HOME_DIR: v.home, MARVEEN_DOCKER_DIR: v.meta, LANG: 'C.UTF-8' }, encoding: 'utf-8' })
   return { out: (r.stdout ?? '') + (r.stderr ?? ''), code: r.status ?? -1 }
 }
-const read = (v: Vol, rel: string) => readFileSync(join(v.home, '.claude', rel), 'utf-8')
+const read = (v: Vol, rel: string) => readFileSync(join(v.home, rel), 'utf-8')
 const cli = (v: Vol) => (existsSync(v.log) ? readFileSync(v.log, 'utf-8') : '')
 
 // A v1.48.0 volume after the wizard: every copy as the old tree seeded it (the templated ones with the pre-wizard
@@ -118,8 +123,8 @@ describe('a v1.48.0 volume on the new image (snapshot -> swap -> first-boot)', (
       expect(cli(v)).toContain('register --source installer taskA')
       expect(cli(v)).toContain('register --source installer topC')
       expect(existsSync(join(v.install, '.seed-prev'))).toBe(false)
-      // nothing but the shipped files under ~/.claude (no .seedtmp)
-      expect(readdirSync(join(v.home, '.claude', SCHED, 'taskA'))).toEqual(['SKILL.md'])
+      // nothing but the shipped files under the instance home (no .seedtmp)
+      expect(readdirSync(join(v.home, SCHED, 'taskA'))).toEqual(['SKILL.md'])
     } finally { rmSync(v.base, { recursive: true, force: true }) }
   })
 
@@ -230,7 +235,7 @@ describe('the start is never blocked by the refresh', () => {
     try {
       snapshot(v); swap(v)
       // next to a file this run keeps (beta's edited references file), so no write of this run consumes it
-      put(v.home, { [join('.claude', 'skills', 'beta', 'references', 'r.md.seedtmp')]: '' })
+      put(v.home, { [join('skills', 'beta', 'references', 'r.md.seedtmp')]: '' })
       const r = firstBootRefresh(v)
       expect(r.out).toContain('a .seedtmp is left')
       expect(r.out).toContain('first-boot rc=0')

@@ -16,6 +16,7 @@
 //
 // One helper for every launcher: channels.sh calls it through scripts/gromzo-needs-auth-clear.mjs, the dashboard's
 // main-session respawns (channel-monitor.ts) import it. No logger here: the CLI's stdout/stderr carry only its line.
+import { instanceClaudeHome } from '../claude-home.js'
 import { chmodSync, chownSync, closeSync, fsyncSync, lstatSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -43,7 +44,7 @@ export interface NeedsAuthClearResult {
 
 /** The config dir a main session launches with: its isolated dir, else CLAUDE_CONFIG_DIR, else ~/.claude. */
 export function mainNeedsAuthConfigDir(isolatedConfigDir?: string | null, env: NodeJS.ProcessEnv = process.env): string {
-  return isolatedConfigDir || env['CLAUDE_CONFIG_DIR'] || join(homedir(), '.claude')
+  return isolatedConfigDir || env['CLAUDE_CONFIG_DIR'] || instanceClaudeHome()
 }
 
 /** True when a launch command loads the Gromzo plugin on its --channels. */

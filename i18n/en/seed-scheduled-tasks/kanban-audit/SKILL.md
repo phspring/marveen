@@ -85,7 +85,7 @@ for r in sqlite3.connect('{{INSTALL_DIR}}/store/claudeclaw.db').execute('''<SQL 
    The blocks below document the SQL; the `sqlite3 db "..."` form in the examples shows the LOGIC,
    the actual run goes through the python3 wrapper above.
 
-4b. **WAITING ROUND CHECK** (since 2026-07-27, the full text is in the reference file): `~/.claude/scheduled-tasks/kanban-audit/references/kanban-audit-step4b-waiting.md`.
+4b. **WAITING ROUND CHECK** (since 2026-07-27, the full text is in the reference file): `$CLAUDE_CONFIG_DIR/scheduled-tasks/kanban-audit/references/kanban-audit-step4b-waiting.md`.
    **MANDATORY to read when executing step 4**: the SQL and the decision rules (CROSSER / NEW ENTRY) are there and must not be skipped.
 
 4c. **SEND-OUT DETECTOR FOR FRESH CARDS (since 2026-08-24, AUDITKIKULD823: this was MISSING until now,
@@ -260,7 +260,7 @@ for c in json.load(sys.stdin):
 
 ## Pitfalls
 
-The detailed list of pitfalls: `~/.claude/scheduled-tasks/kanban-audit/references/kanban-audit-buktatok.md`.
+The detailed list of pitfalls: `$CLAUDE_CONFIG_DIR/scheduled-tasks/kanban-audit/references/kanban-audit-buktatok.md`.
 
 ## Verification
 - The state file was updated at the end of the run.

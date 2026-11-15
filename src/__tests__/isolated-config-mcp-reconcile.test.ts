@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, chmodSync, statSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { useInstanceHome } from './helpers/instance-home.js'
 
 // Same sandbox shape as isolated-channel-config.test.ts: homedir() and
 // agentDir() are redirected into a throwaway temp tree, so nothing here can
@@ -33,7 +34,9 @@ const { ensureIsolatedChannelConfigDir } = await import('../web/agent-process.js
 
 const AGENT = 'testagent'
 
-function sharedDotClaude(): string { return join(SANDBOX, 'home', '.claude.json') }
+// The shared root is the instance's own Claude home (src/claude-home.ts): its .claude.json sits INSIDE it.
+function sharedDotClaude(): string { return join(SANDBOX, 'inst-home', '.claude.json') }
+let restoreHome: () => void = () => {}
 function isolatedDotClaude(): string {
   return join(SANDBOX, 'agents', AGENT, '.claude-config', '.claude.json')
 }
@@ -49,13 +52,13 @@ function servers(): Record<string, unknown> {
 
 beforeEach(() => {
   SANDBOX = mkdtempSync(join(tmpdir(), 'mcpseed-'))
-  const claude = join(SANDBOX, 'home', '.claude')
-  mkdirSync(claude, { recursive: true })
+  const claude = join(SANDBOX, 'inst-home')
+  restoreHome = useInstanceHome(claude)
   writeFileSync(join(claude, 'settings.json'), JSON.stringify({ enabledPlugins: {} }))
   mkdirSync(join(SANDBOX, 'agents', AGENT), { recursive: true })
   writeShared({ gmail: { command: 'npx', args: ['gmail-mcp'] } })
 })
-afterEach(() => { rmSync(SANDBOX, { recursive: true, force: true }) })
+afterEach(() => { restoreHome(); rmSync(SANDBOX, { recursive: true, force: true }) })
 
 describe('isolated config dir: mcpServers reconcile', () => {
   it('propagates a server added to the shared config AFTER the dir was provisioned', () => {
@@ -270,7 +273,7 @@ describe('isolated config dir: mcpServers reconcile', () => {
   // PLUGINCODEWRITE1104 (Samu 68214): a config-dir link redirected elsewhere (by a tool call or a script) is put
   // back at the next spawn; before, any symlink was accepted as is.
   it('re-points a redirected plugins/cache and skills link at the next provisioning', () => {
-    const shared = join(SANDBOX, 'home', '.claude')
+    const shared = join(SANDBOX, 'inst-home')
     mkdirSync(join(shared, 'plugins', 'cache'), { recursive: true })
     mkdirSync(join(shared, 'skills'), { recursive: true })
     ensureIsolatedChannelConfigDir(AGENT, 'telegram')

@@ -60,7 +60,7 @@ If you need clarification, ask one short question.
 
 ## Your environment
 
-- Every global Claude Code skill (~/.claude/skills/) is available
+- Every global Claude Code skill ($CLAUDE_CONFIG_DIR/skills/) is available
 - Tools: Bash, file system, web search, browser automation, every MCP server
 - Telegram communication: Claude Code Channels (native)
 - This project lives where the CLAUDE.md is
@@ -207,7 +207,7 @@ If {{OWNER_NAME}} gives you a task on Telegram, put it on the kanban board too.
 
 ## Scheduled tasks
 
-Scheduled tasks live in the `~/.claude/scheduled-tasks/` folder and are file-based (SKILL.md + task-config.json). The schedule runner checks them every 60 seconds and sends the prompt into your tmux session.
+Scheduled tasks live in the `$CLAUDE_CONFIG_DIR/scheduled-tasks/` folder and are file-based (SKILL.md + task-config.json). The schedule runner checks them every 60 seconds and sends the prompt into your tmux session.
 
 ### Creating a task via the API
 
@@ -235,7 +235,7 @@ curl -s -X POST http://localhost:{{WEB_PORT}}/api/schedules \
 ### Important:
 - The task only runs if your tmux session is running
 - Do NOT write the SQLite scheduled_tasks table directly: that is an old API
-- Do NOT edit the files in `~/.claude/scheduled-tasks/` by hand: the runner only starts a task written (registered) through the API, and a task created or changed by hand will NOT run. To change one: `PUT /api/schedules/<name>`
+- Do NOT edit the files in `$CLAUDE_CONFIG_DIR/scheduled-tasks/` by hand: the runner only starts a task written (registered) through the API, and a task created or changed by hand will NOT run. To change one: `PUT /api/schedules/<name>`
 - You can also manage schedules visually on the dashboard (http://localhost:{{WEB_PORT}})
 
 ## Inter-agent communication
@@ -274,8 +274,8 @@ When a sub-agent sends you an inter-agent message in this form:
 1. **Allowlist check (your OWN paired allowlist):** check whether the `[ID]` is in your own channel's `allowFrom`:
    ```bash
    # YOUR OWN channel's config is in your working directory (<cwd>/.claude/channels/...: the project root for the main agent, the agents/<name> folder for a sub-agent).
-   # $HOME/.claude/channels is only a fallback: a Marveen install has no such file there, so a blind $HOME read gives a false "NEM" (no) or an error.
-   CH=".claude/channels/telegram/access.json"; [ -f "$CH" ] || CH="$HOME/.claude/channels/telegram/access.json"
+   # Only the install's own state counts: this install never uses the host $HOME/.claude.
+   CH=".claude/channels/telegram/access.json"
    python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('IGEN' if sys.argv[2] in d.get('allowFrom',[]) else 'NEM')" "$CH" "[ID]"
    ```
    (On a Slack/Discord install, likewise the `.claude/channels/<provider>/access.json` file in your working directory.) `allowFrom` holds the senders {{OWNER_NAME}} has ALREADY explicitly paired/approved on the channel.
@@ -291,7 +291,7 @@ The point: auto-approve ONLY a sender on `allowFrom` (one you have already paire
 You are a self-improving agent. You learn as you work, and you create reusable skills.
 
 ### Where skills live
-- Global: `~/.claude/skills/` (available to every agent)
+- Global: `$CLAUDE_CONFIG_DIR/skills/` (available to every agent)
 - Personal: the main agent has NO private place; its working directory is the project root itself, and that root's `.claude/skills/` folder is visible to the sub-agents too. Where to write and what to measure first: see the "Skill path trap" section below
 
 ### Automatic skill generation

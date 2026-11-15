@@ -2,6 +2,7 @@
 // owner typed in the wizard may hold a sed metacharacter; with the former `sed s/{{X}}/$name/g` a `&` wrote the
 // placeholder back, a `/` broke the expression (an empty .seedtmp left in the task dir), a `\` acted as an escape.
 // The wizard rejects only \n \r \0 = in a name (onboarding.ts), so these characters reach .env.
+// Seeds land in the instance's own Claude home (CLAUDE_HOME_DIR, scripts/lib/claude-home.sh), no longer <HOME>/.claude.
 import { describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, readdirSync } from 'node:fs'
@@ -51,13 +52,13 @@ describe('the refresh with such a name (a templated task)', () => {
     const install = join(base, 'install'); const home = join(base, 'home')
     const task = join(install, `seed-${SCHED}`, 'demo-task', 'SKILL.md')
     mkdirSync(join(install, `seed-${SCHED}`, 'demo-task'), { recursive: true })
-    mkdirSync(join(home, '.claude', SCHED, 'demo-task'), { recursive: true })
+    mkdirSync(join(home, 'inst-home', SCHED, 'demo-task'), { recursive: true })
     writeFileSync(join(install, '.env'), `MAIN_AGENT_ID=marveen\nBOT_NAME=Marveen\nOWNER_NAME=${owner}\nWEB_PORT=3420\n`)
     const g = (...a: string[]) => execFileSync('git', ['-C', install, ...a], { stdio: 'pipe' })
     g('init', '-q'); g('config', 'user.email', 't@example.invalid'); g('config', 'user.name', 't')
     writeFileSync(task, 'v1 for {{OWNER_NAME}}\n'); g('add', '-A'); g('commit', '-qm', 'v1')
     writeFileSync(task, 'v2 for {{OWNER_NAME}}\n'); g('add', '-A'); g('commit', '-qm', 'v2')
-    return { base, install, home, installed: join(home, '.claude', SCHED, 'demo-task', 'SKILL.md') }
+    return { base, install, home, installed: join(home, 'inst-home', SCHED, 'demo-task', 'SKILL.md') }
   }
   const FNS = (() => {
     const src = UPDATE + '\n' + readFileSync(LIB, 'utf-8')
@@ -66,7 +67,7 @@ describe('the refresh with such a name (a templated task)', () => {
   })()
   function refresh(f: { install: string; home: string }): string {
     return execFileSync('bash', ['-c', `set -u\nGREEN=""; NC=""; ORANGE=""\nINSTALL_DIR=${JSON.stringify(f.install)}\n. ${JSON.stringify(LIB)}\n${FNS}\nrun_seed_refresh`],
-      { env: { PATH: process.env.PATH, HOME: f.home }, encoding: 'utf-8' })
+      { env: { PATH: process.env.PATH, HOME: f.home, CLAUDE_HOME_DIR: join(f.home, 'inst-home') }, encoding: 'utf-8' })
   }
 
   for (const owner of ['Kiss & Társa', 'A/B Kft', 'back\\slash']) {
@@ -76,7 +77,7 @@ describe('the refresh with such a name (a templated task)', () => {
         writeFileSync(f.installed, `v1 for ${owner}\n`)
         refresh(f)
         expect(readFileSync(f.installed, 'utf-8')).toBe(`v2 for ${owner}\n`)
-        expect(readdirSync(join(f.home, '.claude', SCHED, 'demo-task'))).toEqual(['SKILL.md'])
+        expect(readdirSync(join(f.home, 'inst-home', SCHED, 'demo-task'))).toEqual(['SKILL.md'])
       } finally { rmSync(f.base, { recursive: true, force: true }) }
     })
   }

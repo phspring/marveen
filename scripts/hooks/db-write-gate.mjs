@@ -164,6 +164,27 @@ export const PROTECTED_INSTALL_PATHS = [
   // ...and the user-level settings of its isolated CLAUDE_CONFIG_DIR (Samu 67832): a disableAllHooks there switches off
   // every hook of that agent. Claude Code's own writes (/effort, /model) are not tool calls, so this gate never sees them.
   { rel: 'agents/*/.claude-config/settings.json', pattern: true },
+  // The host user's own Claude home (docs/sajat-claude-home.md): an instance uses ONLY its own home (NESTOR_CLAUDE_HOME,
+  // exported as CLAUDE_CONFIG_DIR to every agent). The host ~/.claude and ~/.claude.json belong to the operator's own
+  // Claude and to the other instances on this host, so NO agent of this install writes there -- the main agent neither:
+  // 2026-11-14 the main agent installed skills with `cp` into ~/.claude/skills, and a skill text or CLAUDE.md line saying
+  // "don't" is not a guarantee. The real path is compared, so a link into the host lands here too. The instance home can
+  // never be inside ~/.claude (src/claude-home.ts refuses it), so this never denies the instance's own files.
+  // The places a skill, an agent type, a command, a schedule, a hook, a plugin, instructions or settings get SAVED.
+  // (Moved here from the sub-agent list where they were: for a sub-agent the answer is the same, the reason now says
+  // install-file.) The host channel state stays on its own per-file rules until phase 2 (the plugins' access skills
+  // still name ~/.claude/channels).
+  { home: '.claude/skills', dir: true },
+  { home: '.claude/agents', dir: true },
+  { home: '.claude/commands', dir: true },
+  { home: '.claude/scheduled-tasks', dir: true },
+  { home: '.claude/tools', dir: true },
+  { home: '.claude/hooks', dir: true },
+  { home: '.claude/plugins', dir: true },
+  { home: '.claude/CLAUDE.md' },
+  { home: '.claude/settings.json' },
+  { home: '.claude/settings.local.json' },
+  { home: '.claude.json' },
 ]
 // ENVRELAXGATE1104 (Dani's inventory 67751 and plan v2, Samu 67732/67752/67763): files whose ONE write turns a gate off or
 // gives an agent a right, for a SUB-AGENT only. The main agent writes the install .env legitimately (self-rename), so
@@ -199,8 +220,7 @@ export const SUBAGENT_PROTECTED_INSTALL_PATHS = [
   // SYMLINK to ~/.claude/settings.local.json, a real file the main agent loads too, so a sub-agent writing it (through
   // its symlink or straight) changes every session's settings. The main agent writes them legitimately: sub-agent only.
   // The real path is compared, so the symlink route lands here. ~/.claude/projects (memory files) is not touched.
-  { home: '.claude/settings.json' },
-  { home: '.claude/settings.local.json' },
+  // (~/.claude/settings.json and settings.local.json: in the common list now, every agent; docs/sajat-claude-home.md)
   // The MAIN agent's isolated config dir (MAIN_AGENT_ISOLATED_CONFIG, Samu 68206/68210): its settings.json (env,
   // permissions, enabledPlugins, extraKnownMarketplaces, hooks) and a settings.local.json created there are loaded at
   // the main agent's next start, and so are its plugin registries (plugins/*.json) and its state. Every REAL file in it
@@ -227,7 +247,7 @@ export const SUBAGENT_PROTECTED_INSTALL_PATHS = [
   // from it would keep a server the reconcile is about to take back out
   { rel: 'agents/*/.claude-config/.marveen-mcp-inherited.json', pattern: true },
   { rel: '.mcp.json' },
-  { home: '.claude.json' },
+  // (~/.claude.json: in the common list now)
   // The Claude Code plugin trees and the shared user-level trees every session loads (PLUGINCODEWRITE1104, Samu
   // 68214/68229/68247): a sub-agent writes none of them; the main agent, the dashboard (skill propose), the launcher
   // (channels.sh patches, update.sh plugin refresh, ensureGromzoMarketplace) and Claude Code itself do, none of them by
@@ -238,12 +258,9 @@ export const SUBAGENT_PROTECTED_INSTALL_PATHS = [
   //   ~/marveen-local-plugins      -- the gromzo directory marketplace: its plugin RUNS from there (installPath)
   //   ~/.claude/agents|skills|hooks -- subagent types, skills, hook scripts every session can load
   //   agents/*/.claude-config/plugins/{installed_plugins,known_marketplaces}.json -- each agent's own registries
-  { home: '.claude/plugins', dir: true },
+  // (~/.claude/plugins, agents, skills, hooks: in the common list now)
   { rel: 'plugins', dir: true },
   { home: 'marveen-local-plugins', dir: true },
-  { home: '.claude/agents', dir: true },
-  { home: '.claude/skills', dir: true },
-  { home: '.claude/hooks', dir: true },
   { rel: 'agents/*/.claude-config/plugins/installed_plugins.json', pattern: true },
   { rel: 'agents/*/.claude-config/plugins/known_marketplaces.json', pattern: true },
   // The two background workers' start-up files (WORKERCFGDIR1104, Dani 68629/68889, Samu 68631): WORKER_HOME_TARGETS

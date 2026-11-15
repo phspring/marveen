@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { useInstanceHome } from './helpers/instance-home.js'
 
 // #1954 (part A): the scheduler must not fire into the main session while it is
 // being respawned in-process. Measured on our host, 2026-10-11:
@@ -141,7 +143,13 @@ describe('beginMainRespawn: the end function', () => {
 })
 
 describe('the real resumeMarveenSession holds from its first line to its last', () => {
+  // A respawn now needs the instance's own Claude home (src/claude-home.ts, mainRespawnHomeReady): without one it
+  // refuses before touching tmux. These tests are about the hold, so they run with a home.
+  let instBase = ''
+  let restoreHome: () => void = () => {}
   beforeEach(() => {
+    instBase = mkdtempSync(join(tmpdir(), 'respawnhold-'))
+    restoreHome = useInstanceHome(join(instBase, 'inst-home'))
     _resetMainRespawnHoldForTest()
     execCalls.length = 0
     execHook = () => {}
@@ -149,6 +157,8 @@ describe('the real resumeMarveenSession holds from its first line to its last', 
   })
   afterEach(() => {
     vi.useRealTimers()
+    restoreHome()
+    rmSync(instBase, { recursive: true, force: true })
   })
 
   it('the 16:40 order: a fire 1.5 s into the recovery meets an in-flight hold, and the end starts the settle', async () => {

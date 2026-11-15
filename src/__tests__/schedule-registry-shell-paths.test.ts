@@ -53,7 +53,7 @@ const fs = require('fs'), path = require('path'), crypto = require('crypto')
 const storeDir = path.join(__dirname, '..', '..', 'store')
 const storeFile = path.join(storeDir, 'fake-registry.json')
 const logFile = path.join(storeDir, 'fake-cli.log')
-const tasksDir = path.join(process.env.HOME, '.claude', 'scheduled-tasks')
+const tasksDir = path.join(process.env.CLAUDE_HOME_DIR, 'scheduled-tasks')
 fs.mkdirSync(storeDir, { recursive: true })
 const load = () => { try { return JSON.parse(fs.readFileSync(storeFile, 'utf8')) } catch { return {} } }
 const save = (r) => fs.writeFileSync(storeFile, JSON.stringify(r, null, 2))
@@ -108,15 +108,16 @@ function installFakeCli(install: string): void {
   writeFileSync(cli, FAKE_CLI)
 }
 
-function fakeCli(install: string, home: string, args: string[]): number {
+// `root`: the shared Claude root the tasks live under -- the instance home (src/claude-home.ts) by default.
+function fakeCli(install: string, home: string, args: string[], root = join(home, 'inst-home')): number {
   const r = spawnSync(process.execPath, [join(install, 'dist', 'web', 'schedule-registry-cli.js'), ...args], {
-    env: { ...process.env, HOME: home },
+    env: { ...process.env, HOME: home, CLAUDE_HOME_DIR: root },
     encoding: 'utf-8',
   })
   return r.status ?? -1
 }
 
-const isVerified = (install: string, home: string, name: string) => fakeCli(install, home, ['verify', name]) === 0
+const isVerified = (install: string, home: string, name: string, root?: string) => fakeCli(install, home, ['verify', name], root) === 0
 
 function readRegistry(install: string): Record<string, { sha256: string; source: string }> {
   const p = join(install, 'store', 'fake-registry.json')
@@ -147,7 +148,8 @@ function makeUpdateFixture(names: string[], opts: { cli?: boolean; refs?: boolea
   const base = mkdtempSync(join(tmpdir(), 'schedreg-upd-'))
   const install = join(base, 'install')
   const home = join(base, 'home')
-  mkdirSync(join(home, '.claude', 'scheduled-tasks'), { recursive: true })
+  // The shared root is the instance's own Claude home (src/claude-home.ts), not <HOME>/.claude.
+  mkdirSync(join(home, 'inst-home', 'scheduled-tasks'), { recursive: true })
   mkdirSync(install, { recursive: true })
   git(install, ['init', '-q'])
   git(install, ['config', 'user.email', 'test@example.invalid'])
@@ -166,7 +168,7 @@ function makeUpdateFixture(names: string[], opts: { cli?: boolean; refs?: boolea
     git(install, ['commit', '-q', '-m', `v${v}`])
   }
   if (opts.cli !== false) installFakeCli(install)
-  const live = (n: string) => join(home, '.claude', 'scheduled-tasks', n)
+  const live = (n: string) => join(home, 'inst-home', 'scheduled-tasks', n)
   /** Write a live task dir: files default to the rendered v1 (untouched, refreshable). */
   const writeLive = (n: string, files: { skill?: string; config?: string; check?: string; ref?: string } = {}) => {
     mkdirSync(live(n), { recursive: true })
@@ -188,6 +190,7 @@ function runUpdateRefresh(install: string, home: string, extraEnv: Record<string
     'GREEN=""; NC=""; ORANGE=""',
     `INSTALL_DIR="${install}"`,
     `HOME="${home}"`,
+    `CLAUDE_HOME_DIR="${home}/inst-home"`,
     'MAIN_AGENT_ID="marveen"; BOT_NAME="Bot"; OWNER_NAME="Owner"; WEB_PORT="3420"',
     'SCHED_REVIEW_NAMES=""',
     UPDATE_FUNCS,
@@ -196,7 +199,7 @@ function runUpdateRefresh(install: string, home: string, extraEnv: Record<string
     'run_seed_refresh',
     'register_seeded_schedules',
   ].join('\n') + '\n')
-  const r = spawnSync('bash', [script], { env: { ...process.env, HOME: home, ...extraEnv }, encoding: 'utf-8' })
+  const r = spawnSync('bash', [script], { env: { ...process.env, HOME: home, CLAUDE_HOME_DIR: join(home, 'inst-home'), ...extraEnv }, encoding: 'utf-8' })
   return { code: r.status ?? -1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` }
 }
 
@@ -496,7 +499,7 @@ describe.each(['install-linux.sh', 'install-macos.sh'])('%s registers only the t
       }
       mkdirSync(join(install, 'templates', 'scheduled-tasks', 'tpl-task'), { recursive: true })
       writeFileSync(join(install, 'templates', 'scheduled-tasks', 'tpl-task', 'task-config.json'), '{"agent":"{{MAIN_AGENT_ID}}"}\n')
-      const planted = join(home, '.claude', 'scheduled-tasks', 'planted-task')
+      const planted = join(home, 'inst-home', 'scheduled-tasks', 'planted-task')
       mkdirSync(planted, { recursive: true })
       writeFileSync(join(planted, 'SKILL.md'), '---\nname: planted-task\n---\n\nevil\n')
       writeFileSync(join(planted, 'task-config.json'), '{"agent":"marveen","schedule":"* * * * *"}\n')
@@ -508,10 +511,11 @@ describe.each(['install-linux.sh', 'install-macos.sh'])('%s registers only the t
         'ok() { :; }; warn() { :; }; _t() { echo "$1"; }',
         `INSTALL_DIR="${install}"`,
         `HOME="${home}"`,
+    `CLAUDE_HOME_DIR="${home}/inst-home"`,
         'MAIN_AGENT_ID="marveen"; BOT_NAME="Bot"; OWNER_NAME="Owner"; WEB_PORT="3420"',
         installerSchedBlock(file),
       ].join('\n') + '\n')
-      const r = spawnSync('bash', [script], { env: { ...process.env, HOME: home }, encoding: 'utf-8' })
+      const r = spawnSync('bash', [script], { env: { ...process.env, HOME: home, CLAUDE_HOME_DIR: join(home, 'inst-home') }, encoding: 'utf-8' })
       expect(r.status, r.stderr).toBe(0)
       const reg = readRegistry(install)
       expect(reg['fresh-task']?.source).toBe('cli:installer')
@@ -539,7 +543,10 @@ describe('migrate-main-agent-id.sh re-registers only tasks trusted before the re
     mkdirSync(join(install, 'scripts'), { recursive: true })
     mkdirSync(bin, { recursive: true })
     copyFileSync(join(ROOT, 'scripts', 'migrate-main-agent-id.sh'), join(install, 'scripts', 'migrate-main-agent-id.sh'))
+    mkdirSync(join(install, 'scripts', 'lib'), { recursive: true })
+    copyFileSync(join(ROOT, 'scripts', 'lib', 'claude-home.sh'), join(install, 'scripts', 'lib', 'claude-home.sh'))
     writeFileSync(join(install, '.env'), 'BOT_NAME="Test Bot"\n')
+    const instHome = join(install, '.claude-home')
     // No store/claudeclaw.db -> the sqlite3 step is skipped (sqlite3 is not
     // installed on every box). uname reports an OS that is neither Darwin nor
     // Linux, so no launchctl/systemctl is touched.
@@ -549,7 +556,8 @@ describe('migrate-main-agent-id.sh re-registers only tasks trusted before the re
     chmodSync(join(bin, 'tmux'), 0o755)
     installFakeCli(install)
     const task = (n: string, agent: string, body = 'shipped') => {
-      const d = join(home, '.claude', 'scheduled-tasks', n)
+      // migrate-main-agent-id.sh rewrites the INSTANCE home's scheduled-tasks (docs/sajat-claude-home.md)
+      const d = join(instHome, 'scheduled-tasks', n)
       mkdirSync(d, { recursive: true })
       writeFileSync(join(d, 'SKILL.md'), `---\nname: ${n}\n---\n\n${body}\n`)
       writeFileSync(join(d, 'task-config.json'), JSON.stringify({ schedule: '0 9 * * *', agent }, null, 2))
@@ -557,13 +565,13 @@ describe('migrate-main-agent-id.sh re-registers only tasks trusted before the re
     }
     const run = () => {
       const r = spawnSync('bash', [join(install, 'scripts', 'migrate-main-agent-id.sh')], {
-        env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` },
+        env: { ...process.env, HOME: home, NESTOR_CLAUDE_HOME: '', CLAUDE_HOME_DIR: instHome, PATH: `${bin}:${process.env.PATH}` },
         input: 'y\n',
         encoding: 'utf-8',
       })
       return { code: r.status ?? -1, out: r.stdout ?? '', err: r.stderr ?? '' }
     }
-    return { base, install, home, task, run }
+    return { base, install, home, task, run, root: instHome }
   }
 
   it('trusted task -> rewritten and re-registered; planted and tampered tasks -> rewritten but NOT registered, named for review', () => {
@@ -573,18 +581,18 @@ describe('migrate-main-agent-id.sh re-registers only tasks trusted before the re
       f.task('planted-task', 'marveen', 'planted body')          // never registered
       const tampered = f.task('tampered-task', 'marveen')
       f.task('other-agent-task', 'samu')
-      expect(fakeCli(f.install, f.home, ['register', 'trusted-task', 'tampered-task', 'other-agent-task'])).toBe(0)
+      expect(fakeCli(f.install, f.home, ['register', 'trusted-task', 'tampered-task', 'other-agent-task'], f.root)).toBe(0)
       writeFileSync(join(tampered, 'SKILL.md'), '---\nname: tampered-task\n---\n\nedited on disk\n')
 
       const r = f.run()
       expect(r.code, r.err).toBe(0)
       expect(JSON.parse(readFileSync(join(trusted, 'task-config.json'), 'utf-8')).agent).toBe('test-bot')
 
-      expect(isVerified(f.install, f.home, 'trusted-task')).toBe(true)
-      expect(isVerified(f.install, f.home, 'planted-task')).toBe(false)
-      expect(isVerified(f.install, f.home, 'tampered-task')).toBe(false)
+      expect(isVerified(f.install, f.home, 'trusted-task', f.root)).toBe(true)
+      expect(isVerified(f.install, f.home, 'planted-task', f.root)).toBe(false)
+      expect(isVerified(f.install, f.home, 'tampered-task', f.root)).toBe(false)
       expect(readRegistry(f.install)['planted-task']).toBeUndefined()
-      expect(isVerified(f.install, f.home, 'other-agent-task')).toBe(true)  // not rewritten, still trusted
+      expect(isVerified(f.install, f.home, 'other-agent-task', f.root)).toBe(true)  // not rewritten, still trusted
 
       const registers = cliLog(f.install).filter((e) => e.cmd === 'register' && e.source === 'cli:migrate-agent-id')
       expect(registers.flatMap((e) => e.args)).toEqual(['trusted-task'])
@@ -606,7 +614,7 @@ describe('migrate-main-agent-id.sh re-registers only tasks trusted before the re
     const f = makeMigrateFixture()
     try {
       f.task('unknown-task', 'marveen')
-      expect(fakeCli(f.install, f.home, ['register', 'unknown-task'])).toBe(0)
+      expect(fakeCli(f.install, f.home, ['register', 'unknown-task'], f.root)).toBe(0)
       const cli = join(f.install, 'dist', 'web', 'schedule-registry-cli.js')
       writeFileSync(cli, prelude + FAKE_CLI)
       const r = f.run()

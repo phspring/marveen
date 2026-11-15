@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { makeInstanceHome } from './helpers/instance-home.js'
 
 // ensureMainAgentIsolatedConfigDir: extends the already-proven sub-agent
 // isolated-config machinery to the MAIN channels agent, now on ANY platform
@@ -41,14 +42,20 @@ vi.mock('../config.js', async (orig) => {
   return { ...actual, PROJECT_ROOT: PROJECT, STORE_DIR: STORE }
 })
 
+const INST_HOME = join(PROJECT, '.claude-home')
 const { ensureMainAgentIsolatedConfigDir, ensureMainAgentIsolatedConfigDirForRotatedToken } = await import('../web/agent-process.js')
 
 beforeEach(() => {
   rmSync(PROJECT, { recursive: true, force: true })
   rmSync(HOME, { recursive: true, force: true })
   mkdirSync(STORE, { recursive: true })
-  mkdirSync(join(HOME, '.claude'), { recursive: true })
-  writeFileSync(join(HOME, '.claude', 'settings.json'), '{}')
+  // The shared root is the instance's own Claude home at its DEFAULT place, <PROJECT_ROOT>/.claude-home
+  // (src/claude-home.ts), no longer <HOME>/.claude.
+  makeInstanceHome(INST_HOME)
+  // Named explicitly: the suite seam (setup/default-claude-home-seam.ts) gives every file a scratch NESTOR_CLAUDE_HOME,
+  // which would otherwise win over the default place this test lays the home out at.
+  process.env.NESTOR_CLAUDE_HOME = INST_HOME
+  writeFileSync(join(INST_HOME, 'settings.json'), '{}')
   writeFileSync(TOKEN_PATH, 'sk-ant-oat01-fake\n')
   SETTING = '1'
 })
@@ -57,7 +64,7 @@ afterAll(() => {
 })
 
 describe('ensureMainAgentIsolatedConfigDir', () => {
-  it('linux + setting on + fleet token present + ~/.claude present -> isolated dir', () => {
+  it('linux + setting on + fleet token present + instance home present -> isolated dir', () => {
     const dir = ensureMainAgentIsolatedConfigDir(undefined, 'linux')
     expect(dir).toBe(join(PROJECT, '.channels-config'))
     expect(existsSync(dir!)).toBe(true)
@@ -126,7 +133,7 @@ describe('ensureMainAgentIsolatedConfigDir', () => {
   })
 
   it('lets the shared file win for every key it DOES define', () => {
-    writeFileSync(join(HOME, '.claude', 'settings.json'), JSON.stringify({ model: 'shared-model' }))
+    writeFileSync(join(INST_HOME, 'settings.json'), JSON.stringify({ model: 'shared-model' }))
     const dir = ensureMainAgentIsolatedConfigDir(undefined, 'linux')!
     const own = join(dir, 'settings.json')
     writeFileSync(own, JSON.stringify({ model: 'stale-model', statusLine: 'keep-me' }, null, 2) + '\n')

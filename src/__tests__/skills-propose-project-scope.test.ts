@@ -7,11 +7,14 @@ import { Readable } from 'node:stream'
 import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { makeInstanceHome } from './helpers/instance-home.js'
 
 const tmpHome = mkdtempSync(join(tmpdir(), 'skills-scope-home-'))
 const tmpRoot = mkdtempSync(join(tmpdir(), 'skills-scope-root-'))
 const realHome = process.env.HOME
 process.env.HOME = tmpHome
+// The global skill root is the instance's own Claude home (src/claude-home.ts), no longer <HOME>/.claude/skills.
+process.env.NESTOR_CLAUDE_HOME = makeInstanceHome(join(tmpHome, 'inst-home'))
 afterAll(() => { process.env.HOME = realHome; rmSync(tmpHome, { recursive: true, force: true }); rmSync(tmpRoot, { recursive: true, force: true }) })
 
 vi.mock('../settings-store.js', async (orig) => {
@@ -38,7 +41,7 @@ async function call(method: string, path: string, body: unknown, auth: Auth) {
   return out
 }
 const TOKEN: Auth = { kind: 'token', agent: 'soma' }
-const GLOBAL = join(tmpHome, '.claude', 'skills')
+const GLOBAL = join(tmpHome, 'inst-home', 'skills')
 const PROJECT = join(tmpRoot, '.claude', 'skills')
 const MD = '---\nname: sync-skill\ndescription: x\n---\n# new text\n'
 const propose = (name: string) => call('POST', '/api/skills/propose', { name, skill_md: MD.replace('sync-skill', name) }, TOKEN)

@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+// Seeds land in the instance's own Claude home (CLAUDE_HOME_DIR, scripts/lib/claude-home.sh), no longer <HOME>/.claude.
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -52,8 +53,8 @@ function makeFixture() {
   const home = join(base, 'home')
   mkdirSync(join(install, 'seed-skills', 'demo'), { recursive: true })
   mkdirSync(join(install, 'seed-scheduled-tasks', 'demo-task'), { recursive: true })
-  mkdirSync(join(home, '.claude', 'skills'), { recursive: true })
-  mkdirSync(join(home, '.claude', 'scheduled-tasks'), { recursive: true })
+  mkdirSync(join(home, 'inst-home', 'skills'), { recursive: true })
+  mkdirSync(join(home, 'inst-home', 'scheduled-tasks'), { recursive: true })
   writeFileSync(join(install, '.env'), 'MAIN_AGENT_ID=marveen\nBOT_NAME=Marveen\nOWNER_NAME=Szabolcs\nWEB_PORT=3420\n')
 
   git(install, ['init', '-q'])
@@ -79,7 +80,7 @@ function runRefresh(install: string, home: string): { out: string; code: number 
     'set -u',
     'GREEN=""; NC=""; ORANGE=""',
     `INSTALL_DIR="${install}"`,
-    `HOME="${home}"`,
+    `HOME="${home}"`, `CLAUDE_HOME_DIR="${home}/inst-home"`,
     'MAIN_AGENT_ID=""; BOT_NAME=""; OWNER_NAME=""; WEB_PORT=""',
     FUNCS,
     'run_seed_refresh',
@@ -96,7 +97,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('refreshes a copy that matches the CURRENT shipped version', () => {
     const f = makeFixture()
     try {
-      const dir = join(f.home, '.claude', 'skills', 'demo')
+      const dir = join(f.home, 'inst-home', 'skills', 'demo')
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'SKILL.md'), f.versions[2])
       expect(runRefresh(f.install, f.home).code).toBe(0)
@@ -109,7 +110,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('refreshes a copy that matches an OLDER shipped version (two releases behind)', () => {
     const f = makeFixture()
     try {
-      const dir = join(f.home, '.claude', 'skills', 'demo')
+      const dir = join(f.home, 'inst-home', 'skills', 'demo')
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'SKILL.md'), f.versions[0])   // untouched, but ancient
       const r = runRefresh(f.install, f.home)
@@ -124,7 +125,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('NEVER overwrites a locally modified copy -- the failure that would be silent', () => {
     const f = makeFixture()
     try {
-      const dir = join(f.home, '.claude', 'skills', 'demo')
+      const dir = join(f.home, 'inst-home', 'skills', 'demo')
       mkdirSync(dir, { recursive: true })
       const edited = f.versions[1] + '# the operator added this line\n'
       writeFileSync(join(dir, 'SKILL.md'), edited)
@@ -140,7 +141,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('a one-character edit is enough to be left alone', () => {
     const f = makeFixture()
     try {
-      const dir = join(f.home, '.claude', 'skills', 'demo')
+      const dir = join(f.home, 'inst-home', 'skills', 'demo')
       mkdirSync(dir, { recursive: true })
       const edited = f.versions[2].replace('current', 'currenT')
       writeFileSync(join(dir, 'SKILL.md'), edited)
@@ -154,7 +155,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('handles the TEMPLATED task copies in rendered form', () => {
     const f = makeFixture()
     try {
-      const dir = join(f.home, '.claude', 'scheduled-tasks', 'demo-task')
+      const dir = join(f.home, 'inst-home', 'scheduled-tasks', 'demo-task')
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'SKILL.md'), 'task v1 marveen\n')          // rendered v1, untouched
       runRefresh(f.install, f.home)
@@ -170,10 +171,10 @@ describe('seed refresh touches only provably untouched copies', () => {
     const f = makeFixture()
     try {
       writeFileSync(join(f.install, '.env'), 'BOT_NAME=Marveen\nOWNER_NAME=Szabolcs\nWEB_PORT=3420\n')
-      const dir = join(f.home, '.claude', 'scheduled-tasks', 'demo-task')
+      const dir = join(f.home, 'inst-home', 'scheduled-tasks', 'demo-task')
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'SKILL.md'), 'task v1 \n')
-      const skill = join(f.home, '.claude', 'skills', 'demo')
+      const skill = join(f.home, 'inst-home', 'skills', 'demo')
       mkdirSync(skill, { recursive: true })
       writeFileSync(join(skill, 'SKILL.md'), f.versions[0])
       runRefresh(f.install, f.home)
@@ -187,7 +188,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('leaves a modified TEMPLATED copy alone too', () => {
     const f = makeFixture()
     try {
-      const dir = join(f.home, '.claude', 'scheduled-tasks', 'demo-task')
+      const dir = join(f.home, 'inst-home', 'scheduled-tasks', 'demo-task')
       mkdirSync(dir, { recursive: true })
       const edited = 'task v1 marveen\n# operator note\n'
       writeFileSync(join(dir, 'SKILL.md'), edited)
@@ -201,7 +202,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('never visits a skill the operator authored (no seed source)', () => {
     const f = makeFixture()
     try {
-      const mine = join(f.home, '.claude', 'skills', 'my-own-skill')
+      const mine = join(f.home, 'inst-home', 'skills', 'my-own-skill')
       mkdirSync(mine, { recursive: true })
       writeFileSync(join(mine, 'SKILL.md'), 'my own content\n')
       runRefresh(f.install, f.home)
@@ -218,8 +219,8 @@ describe('seed refresh touches only provably untouched copies', () => {
       // assert on the DIRECTORY, not just the file: a mutation that mkdir -p'd
       // the target still left the file absent, so a file-only check passed
       // while the guard was gone (mutation control, 2026-08-04).
-      expect(existsSync(join(f.home, '.claude', 'skills', 'demo'))).toBe(false)
-      expect(existsSync(join(f.home, '.claude', 'skills', 'demo', 'SKILL.md'))).toBe(false)
+      expect(existsSync(join(f.home, 'inst-home', 'skills', 'demo'))).toBe(false)
+      expect(existsSync(join(f.home, 'inst-home', 'skills', 'demo', 'SKILL.md'))).toBe(false)
     } finally {
       rmSync(f.base, { recursive: true, force: true })
     }
@@ -228,7 +229,7 @@ describe('seed refresh touches only provably untouched copies', () => {
   it('is idempotent: a second pass changes nothing and reports nothing', () => {
     const f = makeFixture()
     try {
-      const dir = join(f.home, '.claude', 'skills', 'demo')
+      const dir = join(f.home, 'inst-home', 'skills', 'demo')
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, 'SKILL.md'), f.versions[0])
       runRefresh(f.install, f.home)
@@ -283,14 +284,14 @@ describe('the shared seed-refresh lib (DOCKERSEEDREFRESH1108)', () => {
   it('without the lib run_seed_refresh prints one line and returns 0; nothing under ~/.claude changes', () => {
     const f = makeFixture()
     try {
-      mkdirSync(join(f.home, '.claude', 'skills', 'demo'), { recursive: true })
-      writeFileSync(join(f.home, '.claude', 'skills', 'demo', 'SKILL.md'), f.versions[0])
-      const before = readFileSync(join(f.home, '.claude', 'skills', 'demo', 'SKILL.md'), 'utf-8')
+      mkdirSync(join(f.home, 'inst-home', 'skills', 'demo'), { recursive: true })
+      writeFileSync(join(f.home, 'inst-home', 'skills', 'demo', 'SKILL.md'), f.versions[0])
+      const before = readFileSync(join(f.home, 'inst-home', 'skills', 'demo', 'SKILL.md'), 'utf-8')
       const fn = sliceShellFn(UPDATE, 'run_seed_refresh')
       const out = execFileSync('bash', ['-c', `set -eu\nGREEN=""; NC=""; ORANGE=""\nINSTALL_DIR=${JSON.stringify(f.install)}\n${fn}\nrun_seed_refresh\necho rc=$?`],
-        { env: { ...process.env, HOME: f.home }, encoding: 'utf-8' })
+        { env: { ...process.env, HOME: f.home, CLAUDE_HOME_DIR: join(f.home, 'inst-home') }, encoding: 'utf-8' })
       expect(out).toBe(`  seed refresh skipped: ${f.install}/scripts/lib/seed-refresh.sh is missing\nrc=0\n`)
-      expect(readFileSync(join(f.home, '.claude', 'skills', 'demo', 'SKILL.md'), 'utf-8')).toBe(before)
+      expect(readFileSync(join(f.home, 'inst-home', 'skills', 'demo', 'SKILL.md'), 'utf-8')).toBe(before)
     } finally {
       rmSync(f.base, { recursive: true, force: true })
     }
@@ -308,7 +309,7 @@ describe('top-level scheduled-tasks/ refresh (SEEDREFRESH826)', () => {
     const install = join(base, 'install')
     const home = join(base, 'home')
     mkdirSync(join(install, 'scheduled-tasks', 'demo-top'), { recursive: true })
-    mkdirSync(join(home, '.claude', 'scheduled-tasks'), { recursive: true })
+    mkdirSync(join(home, 'inst-home', 'scheduled-tasks'), { recursive: true })
     git(install, ['init', '-q'])
     git(install, ['config', 'user.email', 'test@example.invalid'])
     git(install, ['config', 'user.name', 'test'])
@@ -325,7 +326,7 @@ describe('top-level scheduled-tasks/ refresh (SEEDREFRESH826)', () => {
     // What the NODE seeder wrote at install time: v1 with PROJECT_ROOT and
     // MAIN_AGENT_ID resolved -- exactly the on-disk shape update.sh meets.
     const rendered = (s: string) => s.replaceAll('{{PROJECT_ROOT}}', install).replaceAll('{{MAIN_AGENT_ID}}', 'marveen')
-    const liveDir = join(home, '.claude', 'scheduled-tasks', 'demo-top')
+    const liveDir = join(home, 'inst-home', 'scheduled-tasks', 'demo-top')
     mkdirSync(liveDir, { recursive: true })
     return { base, install, home, versions, rendered, livePath: join(liveDir, 'SKILL.md') }
   }
@@ -336,7 +337,7 @@ describe('top-level scheduled-tasks/ refresh (SEEDREFRESH826)', () => {
       'set -u',
       'GREEN=""; NC=""; ORANGE=""',
       `INSTALL_DIR="${install}"`,
-      `HOME="${home}"`,
+      `HOME="${home}"`, `CLAUDE_HOME_DIR="${home}/inst-home"`,
       'MAIN_AGENT_ID="marveen"; BOT_NAME="Bot"; OWNER_NAME="Owner"; WEB_PORT="3420"',
       FUNCS,
       'run_seed_refresh',
@@ -410,7 +411,7 @@ describe('top-level task-config.json on a non-default MAIN_AGENT_ID (#2285)', ()
       git(install, ['add', 'scheduled-tasks/demo-cfg/task-config.json'])
       git(install, ['commit', '-q', '-m', `cfg v${i + 1}`])
     }
-    const liveDir = join(home, '.claude', 'scheduled-tasks', 'demo-cfg')
+    const liveDir = join(home, 'inst-home', 'scheduled-tasks', 'demo-cfg')
     mkdirSync(liveDir, { recursive: true })
     return { base, install, home, livePath: join(liveDir, 'task-config.json') }
   }
@@ -421,7 +422,7 @@ describe('top-level task-config.json on a non-default MAIN_AGENT_ID (#2285)', ()
       'set -u',
       'GREEN=""; NC=""; ORANGE=""',
       `INSTALL_DIR="${install}"`,
-      `HOME="${home}"`,
+      `HOME="${home}"`, `CLAUDE_HOME_DIR="${home}/inst-home"`,
       `MAIN_AGENT_ID="${agent}"; BOT_NAME="Bot"; OWNER_NAME="Owner"; WEB_PORT="3420"`,
       FUNCS,
       'run_seed_refresh',

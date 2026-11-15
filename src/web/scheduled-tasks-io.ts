@@ -1,4 +1,5 @@
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs'
+import { instanceScheduledTasksDir } from '../claude-home.js'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -10,7 +11,7 @@ import { logger } from '../logger.js'
 import { atomicWriteFileSync } from './atomic-write.js'
 import { readJsonObjectForWrite } from './agent-config.js'
 
-export const SCHEDULED_TASKS_DIR = join(homedir(), '.claude', 'scheduled-tasks')
+export const SCHEDULED_TASKS_DIR = instanceScheduledTasksDir()
 
 // Hard cap on the prompt length for a scheduled task, to stop a malicious
 // or accidentally-huge POST body from exhausting the target agent's

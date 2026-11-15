@@ -231,7 +231,10 @@ describe('3. this install\'s gate wiring and autonomy levels', () => {
       '.claude/settings.local.json', 'scripts/hooks', 'scripts/self-pace-gate.mjs', 'store/extra-hooks.json', 'store/autonomy-config.json',
       'store/agent-sender-role-gates.json', 'store/config-overrides.json', 'store/.owner-slack-target', 'store/.net-target-hosts.json', 'store/custom-providers.json', 'store/context-guard.json', '.git/config', '.git/packed-refs', '.git/refs/remotes', '.git/hooks', '~/.gitconfig', '~/git/config',
       // ENVRELAXGATE1104 (Samu 67797): every agent's own Claude settings, one-segment patterns
-      'agents/*/.claude/settings.json', 'agents/*/.claude/settings.local.json', 'agents/*/.claude-config/settings.json'])
+      'agents/*/.claude/settings.json', 'agents/*/.claude/settings.local.json', 'agents/*/.claude-config/settings.json',
+      // docs/sajat-claude-home.md: the host ~/.claude save locations, for every agent (the main agent too)
+      '~/.claude/skills', '~/.claude/agents', '~/.claude/commands', '~/.claude/scheduled-tasks', '~/.claude/tools', '~/.claude/hooks',
+      '~/.claude/plugins', '~/.claude/CLAUDE.md', '~/.claude/settings.json', '~/.claude/settings.local.json', '~/.claude.json'])
   })
   for (const rel of REL) {
     it.each(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])(`%s on the install's ${rel} is denied`, (tool) => {

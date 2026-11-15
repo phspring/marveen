@@ -28,9 +28,11 @@ CHANNEL_PLUGIN_REFRESH_IDS="${CHANNEL_PLUGIN_REFRESH_IDS:-slack-channel@marveen-
 # The config dirs that can hold a plugin registry: the user-level one, the main
 # channel session's, and each agent's. One line each, symlinks resolved, no
 # duplicates (a config dir linked to another is refreshed once).
-channel_plugin_config_dirs() { # install_dir home
+channel_plugin_config_dirs() { # install_dir shared_root
+  # shared_root: the instance's own Claude home (scripts/lib/claude-home.sh), NOT a $HOME: the host ~/.claude is never
+  # refreshed from here. Empty (no home yet) = only the install's own config dirs.
   local d real seen=""
-  for d in "$2/.claude" "$1/.channels-config" "$1"/agents/*/.claude-config; do
+  for d in ${2:+"$2"} "$1/.channels-config" "$1"/agents/*/.claude-config; do
     [ -d "$d" ] || continue
     real="$(cd -P "$d" 2>/dev/null && pwd)" || continue
     case "
@@ -135,7 +137,7 @@ _cpr_claude() { # empty_state_dir config_dir args...
     ${limit[@]+"${limit[@]}"} "$CHANNEL_PLUGIN_CLAUDE_BIN" "$@" < /dev/null
 }
 
-refresh_channel_plugins() { # install_dir home
+refresh_channel_plugins() { # install_dir shared_root (the instance home)
   CHANNEL_PLUGIN_CLAUDE_BIN="${CHANNEL_PLUGIN_CLAUDE_BIN:-$(command -v claude 2>/dev/null)}"
   if [ -z "$CHANNEL_PLUGIN_CLAUDE_BIN" ] || [ ! -x "$CHANNEL_PLUGIN_CLAUDE_BIN" ]; then
     echo "  Csatorna-plugin frissites kihagyva: nincs claude parancs"

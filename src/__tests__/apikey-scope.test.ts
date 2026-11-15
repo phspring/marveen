@@ -251,7 +251,8 @@ describe('moving an authMode=api agent off the shared ~/.claude: nothing lost, n
     const src = readFileSync(join(REPO, 'src', 'web', 'agent-process.ts'), 'utf-8')
     expect(src).toContain('if (!isolated || !copied || !isolatedDirReady(isolated)) {')
     expect(src).toContain("return { ok: false, error: 'authMode=api: isolated config dir could not be provisioned' }")
-    expect(src).toContain('if (!stampAllowed(target, keyMode)) {')
+    // the stamp target is the session's own .claude.json (ownDotClaude), checked before any write
+    expect(src).toContain('if (!stampAllowed(ownDotClaude, keyMode)) {')
     expect(src).toContain("return { ok: false, error: 'authMode=api: no API key (vault agent-<name>-api-key or .env ANTHROPIC_API_KEY)' }")
     // the api key is exported by reference (launchSecretRef), never inlined
     expect(src).toMatch(/apiKeyEnv = `export ANTHROPIC_API_KEY=\$\{launchSecretRef\(`agent-\$\{name\}-api-key`, agentApiKey\)\} && `/)

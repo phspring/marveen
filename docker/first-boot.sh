@@ -86,14 +86,30 @@ fi
 SEED_LANG=hu
 if [ -f scripts/lib/seed-lang.sh ]; then . scripts/lib/seed-lang.sh; SEED_LANG="$(seed_lang "$INSTALL_DIR")"; fi
 
-# ~/.claude: the dirs, the first-run answers claude would otherwise stop on (IL:1167-1218).
-mkdir -p "$HOME/.claude/channels" "$HOME/.claude/skills" "$HOME/.claude/scheduled-tasks"
-chmod 0700 "$HOME/.claude" "$HOME/.claude/channels" "$HOME/.claude/skills" "$HOME/.claude/scheduled-tasks"
-[ -f "$HOME/.claude.json" ] || printf '%s\n' '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$HOME/.claude.json"
-[ -f "$HOME/.claude/settings.json" ] || printf '%s\n' '{"skipDangerousModePermissionPrompt": true}' > "$HOME/.claude/settings.json"
+# The instance's OWN Claude home (docs/sajat-claude-home.md), never ~/.claude: <install>/.claude-home by default (the
+# install volume; the code sync never touches an unshipped top-level entry). A volume from an older image still has its
+# state in ~/.claude: it is moved over ONCE (nestor migrate-claude-home), the marker makes later starts a no-op.
+. scripts/lib/claude-home.sh
+CLAUDE_HOME_DIR="$(claude_home_path "$INSTALL_DIR")" || { say "NESTOR_CLAUDE_HOME is invalid"; exit 2; }
+if [ ! -f "$CLAUDE_HOME_DIR/$CLAUDE_HOME_MARKER" ]; then
+  if [ -d "$HOME/.claude" ] && [ -f dist/instance-cli.js ]; then
+    node dist/instance-cli.js migrate-claude-home "$INSTALL_DIR" || { say "the move into the own Claude home failed; nothing is started"; exit 1; }
+  else
+    mkdir -p "$CLAUDE_HOME_DIR" && chmod 0700 "$CLAUDE_HOME_DIR"
+    printf '{"root": "%s"}\n' "$INSTALL_DIR" > "$CLAUDE_HOME_DIR/$CLAUDE_HOME_MARKER"
+  fi
+fi
+# Every `claude ...` below (the plugin install) works on the home.
+export CLAUDE_HOME_DIR CLAUDE_CONFIG_DIR="$CLAUDE_HOME_DIR"
+
+# The home: the dirs, the first-run answers claude would otherwise stop on (IL:1167-1218).
+mkdir -p "$CLAUDE_HOME_DIR/skills" "$CLAUDE_HOME_DIR/scheduled-tasks"
+chmod 0700 "$CLAUDE_HOME_DIR" "$CLAUDE_HOME_DIR/skills" "$CLAUDE_HOME_DIR/scheduled-tasks"
+[ -f "$CLAUDE_HOME_DIR/.claude.json" ] || printf '%s\n' '{"hasCompletedOnboarding": true, "theme": "dark"}' > "$CLAUDE_HOME_DIR/.claude.json"
+[ -f "$CLAUDE_HOME_DIR/settings.json" ] || printf '%s\n' '{"skipDangerousModePermissionPrompt": true}' > "$CLAUDE_HOME_DIR/settings.json"
 
 # Scheduled tasks: the templates and the seeds, as the installer does (existing and removed ones are kept as they are).
-SCHED="$HOME/.claude/scheduled-tasks"
+SCHED="$CLAUDE_HOME_DIR/scheduled-tasks"
 REGISTER=""
 copy_task() { # template dir, task name
   local tpl="$1" target="$SCHED/$2" sub f
@@ -137,14 +153,14 @@ done
 # Skills: the whole tree of each (the installer copies sub-dirs through git ls-files; the image has no .git).
 for src in skills/skill-factory seed-skills/*/; do
   [ -d "$src" ] || continue; n="$(basename "$src")"
-  [ -e "$HOME/.claude/skills/$n" ] && continue
-  cp -R "$src" "$HOME/.claude/skills/$n" || continue
+  [ -e "$CLAUDE_HOME_DIR/skills/$n" ] && continue
+  cp -R "$src" "$CLAUDE_HOME_DIR/skills/$n" || continue
   # seed A: on en, the English version of each of its Markdown files over the copied one (the image has no .git, so the
   # whole i18n/en/<skill> tree is the list).
   if [ "$SEED_LANG" = en ] && [ -d "i18n/en/${src%/}" ]; then
     (cd "i18n/en/${src%/}" && find . -type f -name '*.md') | while IFS= read -r rel; do
-      rel="${rel#./}"; mkdir -p "$HOME/.claude/skills/$n/$(dirname "$rel")"
-      cp "i18n/en/${src%/}/$rel" "$HOME/.claude/skills/$n/$rel"
+      rel="${rel#./}"; mkdir -p "$CLAUDE_HOME_DIR/skills/$n/$(dirname "$rel")"
+      cp "i18n/en/${src%/}/$rel" "$CLAUDE_HOME_DIR/skills/$n/$rel"
     done
   fi
   say "skill seeded: $n"
@@ -167,7 +183,7 @@ case "$(env_val CHANNEL_PROVIDER)" in
   discord) PLUGIN=discord@claude-plugins-official; MARKET=anthropics/claude-plugins-official ;;
   *) PLUGIN=telegram@claude-plugins-official; MARKET=anthropics/claude-plugins-official ;;
 esac
-if ! grep -qs "\"${PLUGIN}\"" "$HOME/.claude/plugins/installed_plugins.json"; then
+if ! grep -qs "\"${PLUGIN}\"" "$CLAUDE_HOME_DIR/plugins/installed_plugins.json"; then
   if claude plugin marketplace add "$MARKET" >/dev/null 2>&1 && claude plugin install "$PLUGIN" >/dev/null 2>&1; then
     say "channel plugin installed: $PLUGIN"
   else

@@ -310,7 +310,9 @@ describe('first-run gate wiring contracts', () => {
   })
 
   it('startAgentProcess stamps per-project trust in the config root the session boots from', () => {
-    const stampIdx = AGENT_PROCESS.indexOf('stampProjectTrustForDir(\n      claudeConfigDir')
+    // The target is the session's own .claude.json (ownDotClaude = <claudeConfigDir>/.claude.json: its isolated dir or
+    // the instance home, never the host ~/.claude.json since docs/sajat-claude-home.md).
+    const stampIdx = AGENT_PROCESS.indexOf('stampProjectTrustForDir(ownDotClaude, dir)')
     // The launch target used to be a bare `null`. Since agents can own their OS user it is
     // `startTarget` (agentTmuxTarget(name)), so the old literal matched nothing and the
     // assertion passed a -1 into the ordering check. The contract under test is the ORDER,

@@ -1,6 +1,6 @@
 ---
 name: skill-management
-description: List, inspect, patch, or delete skills from ~/.claude/skills/. Use when the user asks about available skills, wants to modify an existing skill, or when a retrospective proposes skill changes. Trigger on "/skills" command or skill-related retrospective actions.
+description: List, inspect, patch, or delete skills from $CLAUDE_CONFIG_DIR/skills/. Use when the user asks about available skills, wants to modify an existing skill, or when a retrospective proposes skill changes. Trigger on "/skills" command or skill-related retrospective actions.
 ---
 
 # Skill Management -- CRUD for the Skill Library
@@ -19,7 +19,7 @@ description: List, inspect, patch, or delete skills from ~/.claude/skills/. Use 
 |----------|----------|-------------|
 | `action` | YES | One of: `list`, `show`, `create`, `patch`, `delete`, `audit` |
 | `name` | for show/patch/delete | Skill directory name (e.g. `github-pr-rebase-merge`) |
-| `scope` | no | `global` (default, ~/.claude/skills/) or `local` (./claude/skills/) |
+| `scope` | no | `global` (default, $CLAUDE_CONFIG_DIR/skills/) or `local` (./claude/skills/) |
 
 Examples:
 - `/skills action=list` -- list all skills with descriptions
@@ -53,7 +53,7 @@ Present as a compact table. If both global and local exist, show both.
 
 ### action=show
 
-1. Read `~/.claude/skills/{name}/SKILL.md`
+1. Read `$CLAUDE_CONFIG_DIR/skills/{name}/SKILL.md`
 2. If it has a `references/` subdirectory, list those files too
 3. Present the full content
 
@@ -85,7 +85,7 @@ description: {one-line, specific about triggers}
 - {Known issues, if any}
 ```
 
-4. Write to `~/.claude/skills/{name}/SKILL.md`
+4. Write to `$CLAUDE_CONFIG_DIR/skills/{name}/SKILL.md`
 5. Update `.skill-index.md` if it exists
 
 Rules:
@@ -130,7 +130,7 @@ Comprehensive skill library health check:
 
 1. **Stale detection**: Skills not referenced in any CLAUDE.md and with no git activity in 60+ days
 ```bash
-for dir in ~/.claude/skills/*/; do
+for dir in $CLAUDE_CONFIG_DIR/skills/*/; do
   name=$(basename "$dir")
   skill_file="$dir/SKILL.md"
   if [ -f "$skill_file" ]; then
@@ -142,7 +142,7 @@ done | sort
 
 2. **Duplicate detection**: Skills with overlapping descriptions or triggers
 ```bash
-for dir in ~/.claude/skills/*/; do
+for dir in $CLAUDE_CONFIG_DIR/skills/*/; do
   skill_file="$dir/SKILL.md"
   if [ -f "$skill_file" ]; then
     desc=$(sed -n '/^description:/{ s/^description: *//; p; q; }' "$skill_file")
@@ -154,7 +154,7 @@ Review for semantic overlaps manually.
 
 3. **Size check**: Skills over 500 lines that should be refactored
 ```bash
-for dir in ~/.claude/skills/*/; do
+for dir in $CLAUDE_CONFIG_DIR/skills/*/; do
   skill_file="$dir/SKILL.md"
   if [ -f "$skill_file" ]; then
     lines=$(wc -l < "$skill_file")
@@ -167,11 +167,11 @@ done
 
 4. **Index sync**: Check `.skill-index.md` matches actual directories
 ```bash
-if [ -f ~/.claude/skills/.skill-index.md ]; then
+if [ -f $CLAUDE_CONFIG_DIR/skills/.skill-index.md ]; then
   echo "Index exists, checking sync..."
   # Compare index entries vs actual directories
-  indexed=$(grep -oP '(?<=\[)[^\]]+' ~/.claude/skills/.skill-index.md | sort)
-  actual=$(ls -d ~/.claude/skills/*/ 2>/dev/null | xargs -I{} basename {} | sort)
+  indexed=$(grep -oP '(?<=\[)[^\]]+' $CLAUDE_CONFIG_DIR/skills/.skill-index.md | sort)
+  actual=$(ls -d $CLAUDE_CONFIG_DIR/skills/*/ 2>/dev/null | xargs -I{} basename {} | sort)
   diff <(echo "$indexed") <(echo "$actual")
 fi
 ```
@@ -206,7 +206,7 @@ echo "" >> "$INDEX_FILE"
 echo "Auto-generated. Do not edit manually." >> "$INDEX_FILE"
 echo "" >> "$INDEX_FILE"
 
-for dir in ~/.claude/skills/*/; do
+for dir in $CLAUDE_CONFIG_DIR/skills/*/; do
   skill_file="$dir/SKILL.md"
   if [ -f "$skill_file" ]; then
     name=$(basename "$dir")

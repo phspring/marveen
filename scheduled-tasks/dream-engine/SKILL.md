@@ -119,9 +119,9 @@ Output (max 1 opportunity): repo URL + relevancia + `mode=report|propose`.
 
 ```bash
 # Antikvált skillek: nincs use-log, vagy a frontmatterben pinned: false
-ls ~/.claude/skills/ | head
+ls $CLAUDE_CONFIG_DIR/skills/ | head
 # Mindegyik SKILL.md-ben grep -l "pinned: true" — ezek mind védettek
-grep -L "^pinned:" ~/.claude/skills/*/SKILL.md  # azok a skillek ahol nincs pinned-flag (NEM gyári)
+grep -L "^pinned:" $CLAUDE_CONFIG_DIR/skills/*/SKILL.md  # azok a skillek ahol nincs pinned-flag (NEM gyári)
 ```
 
 Pinned default (mindig védett): claude-video, frontend-design, docx, skill-creator, skill-factory, skill-install-from-git, init, review, security-review, simplify, fewer-permission-prompts, loop, schedule, claude-api, update-config, keybindings-help, telegram:configure, telegram:access.

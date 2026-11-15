@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, rmSync, watchFile, unwatchFile, realpathSync } from 'node:fs'
+import { instanceClaudeHome, instanceScheduledTasksDir, instanceSettingsPath, instanceSkillsDir } from '../claude-home.js'
 import { readRemovedDefaultTasks } from './scheduled-tasks-io.js'
 import { registerScheduledTask } from './schedule-registry.js'
 import { basename, dirname, join } from 'node:path'
@@ -390,7 +391,7 @@ export function resolveTemplatePlaceholders(content: string): string {
 // unrelated Claude Code sessions (#1305: blocked WebFetch there, plus a
 // prompt-injection surface and foreign content reaching fleet memory).
 export function agentSettingsPath(name: string): string {
-  if (name === MAIN_AGENT_ID) return join(homedir(), '.claude', 'settings.json')
+  if (name === MAIN_AGENT_ID) return instanceSettingsPath()
   return join(agentDir(name), '.claude', 'settings.json')
 }
 
@@ -599,7 +600,7 @@ export function hookScriptAlreadyEffectiveInOtherScope(
   command: string,
   scopes?: { user: string; project: string },
 ): boolean {
-  const userScope = scopes?.user ?? join(homedir(), '.claude', 'settings.json')
+  const userScope = scopes?.user ?? instanceSettingsPath()
   const projectScope = scopes?.project ?? join(PROJECT_ROOT, '.claude', 'settings.json')
   if (settingsPath !== userScope) return false
   if (projectScope === userScope) return false
@@ -3208,7 +3209,7 @@ export function ensureQuarantineReader(
   // permanently stale -- a leftover would shadow nothing (project scope wins)
   // but would mislead the next person debugging the gate.
   if (name === MAIN_AGENT_ID) {
-    const legacyPath = paths?.legacyPath ?? join(homedir(), '.claude', 'agents', 'quarantine-reader.md')
+    const legacyPath = paths?.legacyPath ?? join(instanceClaudeHome(), 'agents', 'quarantine-reader.md')
     try { rmSync(legacyPath, { force: true }) } catch { /* best effort */ }
   }
   return !upToDate
@@ -3283,7 +3284,7 @@ function copyTaskConfigWithAgentRewrite(srcPath: string, destPath: string): void
 export function ensureDefaultScheduledTasks(lang: AgentTextLang = agentTextLang()): void {
   const repoTasks = join(PROJECT_ROOT, 'scheduled-tasks')
   if (!existsSync(repoTasks)) return
-  const destRoot = join(homedir(), '.claude', 'scheduled-tasks')
+  const destRoot = instanceScheduledTasksDir()
   mkdirSync(destRoot, { recursive: true })
 
   // #796: an operator who deleted a shipped default must not have it silently
@@ -4218,28 +4219,26 @@ export function buildSkillsPathTrapBody(name: string): string {
     'config-gyökérből futsz:',
     '',
     '```bash',
-    'echo "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; ls -ld "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills"',
+    'echo "$CLAUDE_CONFIG_DIR"; ls -ld "$CLAUDE_CONFIG_DIR/skills"',
     '```',
     '',
-    'Ha a `$CLAUDE_CONFIG_DIR` ÜRES (alapértelmezett telepítés, ahol a fő ágens',
-    'izolált config-gyökér nélkül, a megosztott `~/.claude`-on fut), a gyökered',
-    'maga a `~/.claude`, és annak `skills` mappája a globális: a lenti 1. pont,',
-    'symlink nélkül. Izolált módban a gyökér NEVE ágensenként MÁS (a sub-ágenseké',
-    '`agents/<név>/.claude-config`, a fő ágensé `<projekt-gyökér>/.channels-config`),',
-    'ezért a NÉVRE emlékezni félrevezet, mindkét irányban: abból, hogy egy út NÁLAD',
-    'nem létezik, semmi nem következik a flotta többi tagjára, és attól, hogy a',
-    'gyökeredet másképp hívják, még nem a tiéd, ami benne van. A viselkedés',
-    'mindenhol UGYANAZ, és pont ezt mutatja meg a fenti `ls -ld`: izolált',
-    'módban a `$CLAUDE_CONFIG_DIR/skills` SYMLINK a globálisra, tehát az 1. pont,',
-    'más néven; üres változónál maga a `~/.claude/skills` az.',
+    'A `$CLAUDE_CONFIG_DIR` MINDIG be van állítva: ez a telepítés SAJÁT Claude-homeja',
+    `(\`${instanceClaudeHome()}\`), vagy egy saját izolált gyökér (a sub-ágenseké`,
+    '`agents/<név>/.claude-config`, a fő ágensé `<projekt-gyökér>/.channels-config`).',
+    'A host felhasználó `~/.claude` mappáját ez a telepítés SOHA nem használja: oda',
+    'semmit ne írj, és onnan semmit ne olvass be (más telepítések és a gazda saját',
+    'Claude-ja használja). A gyökér NEVE ágensenként más, ezért a névre emlékezni',
+    'félrevezet; a viselkedés mindenhol ugyanaz, és ezt mutatja meg a fenti `ls -ld`:',
+    'a `skills` bejegyzés a telepítés globális skill-mappájára mutat (vagy a',
+    'skill-könyvtárból összeállított mappa, ha az ágens `composed` módban fut).',
     '',
-    '1. `~/.claude/skills` -- a globális. MINDEN ágens látja. Ide közvetlenül NE',
-    '   írj: új globális skill vagy egy meglévő javítása CSAK javaslatként megy',
-    '   (`POST /api/skills/propose`). Hogy azonnal élesedik (a scan és az audit',
-    '   akkor is lefut), vagy a gazda jóváhagyásáig karanténban vár, azt a',
-    '   SKILL_QUARANTINE kapcsoló dönti el; a válasz `live` mezője megmondja. A',
-    '   skill-futtatás base directory-ja a saját config-gyökeredet MUTATHATJA --',
-    '   attól még a flottáé.',
+    `1. \`${instanceSkillsDir()}\` -- a telepítés globálisa. A telepítés MINDEN ágense`,
+    '   látja (más telepítés nem). Ide közvetlenül NE írj: új globális skill vagy',
+    '   egy meglévő javítása CSAK javaslatként megy (`POST /api/skills/propose`).',
+    '   Hogy azonnal élesedik (a scan és az audit akkor is lefut), vagy a gazda',
+    '   jóváhagyásáig karanténban vár, azt a SKILL_QUARANTINE kapcsoló dönti el; a',
+    '   válasz `live` mezője megmondja. A skill-futtatás base directory-ja a saját',
+    '   config-gyökeredet MUTATHATJA -- attól még a telepítésé.',
   ]
   const perAgent = isMain
     ? [
@@ -5306,7 +5305,7 @@ Te egy önfejlesztő ágens vagy. A munkád során tanulsz, és újrafelhasznál
 
 ### Skill-ek helye
 - Egyéni: a te munkakönyvtárad .claude/skills/ mappája. Csak te látod; ide közvetlenül írsz.
-- Globális: ~/.claude/skills/ (minden ágens látja). Ide közvetlenül NE írj: új globális skill vagy egy meglévő javítása csak javaslatként megy (lásd lent). Hogy azonnal élesedik (a scan és az audit akkor is lefut), vagy a gazda jóváhagyásáig karanténban vár, azt a SKILL_QUARANTINE kapcsoló dönti el; a válasz \`live\` mezője megmondja, melyik történt.
+- Globális: ${instanceSkillsDir()}/ (minden ágens látja). Ide közvetlenül NE írj: új globális skill vagy egy meglévő javítása csak javaslatként megy (lásd lent). Hogy azonnal élesedik (a scan és az audit akkor is lefut), vagy a gazda jóváhagyásáig karanténban vár, azt a SKILL_QUARANTINE kapcsoló dönti el; a válasz \`live\` mezője megmondja, melyik történt.
 - CSAPDA: a .claude-config/skills NEM a tiéd -- az a globális mappa symlinken át; saját skill a .claude/skills alá menjen
 
 ### Automatikus skill generálás
@@ -5316,7 +5315,7 @@ mkdir -p .claude/skills/SKILL-NEV
 A SKILL.md tartalmazzon YAML frontmatter-t (name, description), majd szekciókat: Mikor használd, Eljárás, Buktatók, Ellenőrzés.
 
 ### Globális skill: csak javaslatként
-Ha a skill minden ágensnek hasznos, vagy egy meglévő globális skillt javítanál, írd meg a teljes SKILL.md-t piszkozatba, és küldd el. Ha a név már él, a javaslat csere: élesedéskor a régi változat mentésre kerül. Meglévő globális skill javításánál a mostani szövegből indulj (cat ~/.claude/skills/NEV/SKILL.md), és a TELJES javított szöveget küldd.
+Ha a skill minden ágensnek hasznos, vagy egy meglévő globális skillt javítanál, írd meg a teljes SKILL.md-t piszkozatba, és küldd el. Ha a név már él, a javaslat csere: élesedéskor a régi változat mentésre kerül. Meglévő globális skill javításánál a mostani szövegből indulj (cat ${instanceSkillsDir()}/NEV/SKILL.md), és a TELJES javított szöveget küldd.
 
 ${strictAgent ? strictSkillProposeRecipe(strictAgent) : `mkdir -p .claude/skill-javaslat && cat > .claude/skill-javaslat/SKILL.md << 'SKILLEOF'
 (a teljes SKILL.md, ugyanazzal a szerkezettel, mint egy saját skillé)
@@ -5450,9 +5449,9 @@ TÖRLÉS NINCS, ÉS SZÁNDÉKOSAN NE IS LEGYEN. A DELETE /api/memories/:id léte
 
 ## Ütemezett feladatok
 
-Az ütemezett feladatok a ~/.claude/scheduled-tasks/ mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
+Az ütemezett feladatok a ${instanceScheduledTasksDir()}/ mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
 
-Ütemezést NEM hozhatsz létre, NEM módosíthatsz, NEM kapcsolhatsz ki/be és NEM törölhetsz magad: se az API-n (semmilyen klienssel: curl, python, node, wget...), se a ~/.claude/scheduled-tasks/ mappa írásával, se az SQLite táblában. A governance-kapu (self-pace-gate) ezeket megtagadja${ownTokenSchedule}. Ha ütemezés kell, kérd ${BOT_NAME}-t (${MAIN_AGENT_ID}) inter-agent üzenetben ${helper ? R.scheduleAsk : '(a lenti, idézett heredoces alakban)'}: név, leírás, prompt, cron, ágens (AGENT_NAME), típus. Ő hozza létre vagy módosítja.
+Ütemezést NEM hozhatsz létre, NEM módosíthatsz, NEM kapcsolhatsz ki/be és NEM törölhetsz magad: se az API-n (semmilyen klienssel: curl, python, node, wget...), se a ${instanceScheduledTasksDir()}/ mappa írásával, se az SQLite táblában. A governance-kapu (self-pace-gate) ezeket megtagadja${ownTokenSchedule}. Ha ütemezés kell, kérd ${BOT_NAME}-t (${MAIN_AGENT_ID}) inter-agent üzenetben ${helper ? R.scheduleAsk : '(a lenti, idézett heredoces alakban)'}: név, leírás, prompt, cron, ágens (AGENT_NAME), típus. Ő hozza létre vagy módosítja.
 
 ${helper ? R.scheduleList : `Olvasni (listázni) szabad, PONTOSAN ebben az alakban:
 curl -q -s -H "Authorization: Bearer $(cat ${tokenPath})" ${dashboardOrigin}/api/schedules
@@ -5462,7 +5461,7 @@ A -q legyen az ELSŐ argumentum, a token útja SZÓ SZERINT ez az abszolút út 
 Típusok: task (mindig szól az eredménnyel) vagy heartbeat (csak fontosnál szól).
 Cron formátum: perc óra nap hónap hétnapja (pl. 0 8 * * * = minden nap 8:00).
 NE írd közvetlenül az SQLite scheduled_tasks táblát - az egy régi API.
-NE szerkeszd kézzel a ~/.claude/scheduled-tasks/ fájljait: a runner csak az API-n át írt (regisztrált) feladatot indítja, egy kézzel létrehozott vagy módosított feladat NEM fut le.
+NE szerkeszd kézzel a ${instanceScheduledTasksDir()}/ fájljait: a runner csak az API-n át írt (regisztrált) feladatot indítja, egy kézzel létrehozott vagy módosított feladat NEM fut le.
 
 ${buildSkillSection(helper ? name : undefined, tokenPath)}
 

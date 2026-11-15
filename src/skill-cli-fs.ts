@@ -11,6 +11,7 @@
  * ahelyett, hogy csendben visszaesne ra.
  */
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { instanceSkillsDir } from './claude-home.js'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -90,7 +91,7 @@ export function loadCredentials(): SkillCredentials | null {
  */
 export function skillTargetDir(scope: 'project' | 'user', cwd = process.cwd()): string {
   return scope === 'user'
-    ? join(homedir(), '.claude', 'skills')
+    ? instanceSkillsDir()
     : join(cwd, '.claude', 'skills')
 }
 

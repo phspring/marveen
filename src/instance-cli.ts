@@ -5,6 +5,7 @@
 // `--json` prints machine-readable output. Nothing here changes a running system.
 
 import { homedir } from 'node:os'
+import { migrateClaudeHome, renderMigrate } from './claude-home-migrate.js'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { join } from 'node:path'
 import { assertEnvEntry } from './env.js'
@@ -44,7 +45,7 @@ export function renderDoctor(self: InstanceInfo, others: readonly InstanceInfo[]
 /** Returns the exit code. `out`/`err` are the writers, so the command is testable. */
 export function runInstanceCli(argv: string[], env: NodeJS.ProcessEnv, out: (s: string) => void, err: (s: string) => void, home = homedir()): number {
   const [cmd, root, ...rest] = argv
-  if (!cmd || !root) { err('usage: instance-cli <info|doctor|init|register|unregister> <install-root> [--json]'); return 2 }
+  if (!cmd || !root) { err('usage: instance-cli <info|doctor|init|register|unregister|migrate-claude-home> <install-root> [--json|--dry-run]'); return 2 }
   const json = rest.includes('--json')
   const self = describeInstallAt(root, home)
   const dir = registryDir(env, home)
@@ -53,6 +54,16 @@ export function runInstanceCli(argv: string[], env: NodeJS.ProcessEnv, out: (s: 
   if (cmd === 'init') return initInstance(self.root, rest, readRegistry(dir, home).instances, out, err)
   if (cmd === 'register') { registerInstance(dir, self.root); out(`registered ${self.unitId} (${self.root}) in ${dir}`); return 0 }
   if (cmd === 'unregister') { out(unregisterInstance(dir, self.root) ? `unregistered ${self.root}` : `${self.root} was not registered`); return 0 }
+  if (cmd === 'migrate-claude-home') {
+    const dryRun = rest.includes('--dry-run')
+    try {
+      out(renderMigrate(migrateClaudeHome(self.root, { hostHome: home, dryRun }), dryRun))
+      return 0
+    } catch (e) {
+      err(`migrate-claude-home: ${(e as Error).message}`)
+      return 1
+    }
+  }
   if (cmd === 'doctor') {
     const reg = readRegistry(dir, home)
     const others = reg.instances.filter((o) => o.root !== self.root)
