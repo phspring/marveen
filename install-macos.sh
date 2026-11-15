@@ -1063,7 +1063,7 @@ unset -f run_priv
 # boundary above; a disagreement (a link into ~/.claude, a .env value) stops the install instead of guessing.
 . "$INSTALL_DIR/scripts/lib/claude-home.sh"
 _ch_check="$(claude_home_path "$INSTALL_DIR")" || { echo -e "  ${RED}✗${NC} NESTOR_CLAUDE_HOME is invalid (see above)"; exit 1; }
-if [ "$_ch_check" != "$(realpath -- "$CLAUDE_HOME_DIR" 2>/dev/null || printf '%s' "$CLAUDE_HOME_DIR")" ]; then
+if [ "$_ch_check" != "$(_ch_real "$CLAUDE_HOME_DIR")" ]; then
   echo -e "  ${RED}✗${NC} the instance Claude home disagrees: $CLAUDE_HOME_DIR vs $_ch_check (set NESTOR_CLAUDE_HOME in the environment)"
   exit 1
 fi

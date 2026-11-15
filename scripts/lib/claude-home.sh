@@ -11,8 +11,28 @@
 CLAUDE_HOME_MARKER=".nestor-claude-home"
 
 _ch_real() {
-  # realpath -m resolves what exists and keeps the rest (GNU); macOS has no -m, so fall back to the plain path.
-  realpath -m -- "$1" 2>/dev/null || printf '%s' "$1"
+  # The real path of $1 (absolute), resolving every link in the part that exists and keeping the rest. Portable on
+  # purpose: macOS's realpath has no -m, and falling back to the unresolved path let a link into the host ~/.claude
+  # through (Copilot on #18). The deepest existing ancestor is resolved with `cd -P`; a not-yet-existing tail cannot
+  # hold a link. A final component that is a link to a file is followed with readlink (bounded, against loops).
+  local p="$1" tail="" base dir n=0 t
+  while [ -n "$p" ] && [ "$p" != "/" ] && [ ! -e "$p" ] && [ ! -L "$p" ]; do
+    tail="/${p##*/}$tail"; p="${p%/*}"; [ -n "$p" ] || p="/"
+  done
+  while [ -L "$p" ] && [ ! -d "$p" ] && [ "$n" -lt 40 ]; do
+    t="$(readlink -- "$p")" || break
+    case "$t" in /*) p="$t" ;; *) p="${p%/*}/$t" ;; esac
+    n=$((n + 1))
+  done
+  if [ -d "$p" ]; then
+    dir="$(cd -P -- "$p" 2>/dev/null && pwd)" || dir="$p"
+    base=""
+  else
+    dir="$(cd -P -- "${p%/*}" 2>/dev/null && pwd)" || dir="${p%/*}"
+    base="/${p##*/}"
+  fi
+  [ "$dir" = "/" ] && dir=""
+  printf '%s' "${dir}${base}${tail}"
 }
 
 _ch_env_value() {

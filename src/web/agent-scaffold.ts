@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, readdirSync, statSync, rmSync, watchFile, unwatchFile, realpathSync } from 'node:fs'
-import { instanceClaudeHome, instanceScheduledTasksDir, instanceSettingsPath, instanceSkillsDir } from '../claude-home.js'
+import { instanceClaudeHome, instanceScheduledTasksDir, instanceSettingsPath } from '../claude-home.js'
 import { readRemovedDefaultTasks } from './scheduled-tasks-io.js'
 import { registerScheduledTask } from './schedule-registry.js'
 import { basename, dirname, join } from 'node:path'
@@ -4223,7 +4223,7 @@ export function buildSkillsPathTrapBody(name: string): string {
     '```',
     '',
     'A `$CLAUDE_CONFIG_DIR` MINDIG be van állítva: ez a telepítés SAJÁT Claude-homeja',
-    `(\`${instanceClaudeHome()}\`), vagy egy saját izolált gyökér (a sub-ágenseké`,
+    `(\`$NESTOR_CLAUDE_HOME\`), vagy egy saját izolált gyökér (a sub-ágenseké`,
     '`agents/<név>/.claude-config`, a fő ágensé `<projekt-gyökér>/.channels-config`).',
     'A host felhasználó `~/.claude` mappáját ez a telepítés SOHA nem használja: oda',
     'semmit ne írj, és onnan semmit ne olvass be (más telepítések és a gazda saját',
@@ -4232,7 +4232,7 @@ export function buildSkillsPathTrapBody(name: string): string {
     'a `skills` bejegyzés a telepítés globális skill-mappájára mutat (vagy a',
     'skill-könyvtárból összeállított mappa, ha az ágens `composed` módban fut).',
     '',
-    `1. \`${instanceSkillsDir()}\` -- a telepítés globálisa. A telepítés MINDEN ágense`,
+    `1. \`$NESTOR_CLAUDE_HOME/skills\` -- a telepítés globálisa. A telepítés MINDEN ágense`,
     '   látja (más telepítés nem). Ide közvetlenül NE írj: új globális skill vagy',
     '   egy meglévő javítása CSAK javaslatként megy (`POST /api/skills/propose`).',
     '   Hogy azonnal élesedik (a scan és az audit akkor is lefut), vagy a gazda',
@@ -5305,7 +5305,7 @@ Te egy önfejlesztő ágens vagy. A munkád során tanulsz, és újrafelhasznál
 
 ### Skill-ek helye
 - Egyéni: a te munkakönyvtárad .claude/skills/ mappája. Csak te látod; ide közvetlenül írsz.
-- Globális: ${instanceSkillsDir()}/ (minden ágens látja). Ide közvetlenül NE írj: új globális skill vagy egy meglévő javítása csak javaslatként megy (lásd lent). Hogy azonnal élesedik (a scan és az audit akkor is lefut), vagy a gazda jóváhagyásáig karanténban vár, azt a SKILL_QUARANTINE kapcsoló dönti el; a válasz \`live\` mezője megmondja, melyik történt.
+- Globális: $NESTOR_CLAUDE_HOME/skills/ (minden ágens látja). Ide közvetlenül NE írj: új globális skill vagy egy meglévő javítása csak javaslatként megy (lásd lent). Hogy azonnal élesedik (a scan és az audit akkor is lefut), vagy a gazda jóváhagyásáig karanténban vár, azt a SKILL_QUARANTINE kapcsoló dönti el; a válasz \`live\` mezője megmondja, melyik történt.
 - CSAPDA: a .claude-config/skills NEM a tiéd -- az a globális mappa symlinken át; saját skill a .claude/skills alá menjen
 
 ### Automatikus skill generálás
@@ -5315,7 +5315,7 @@ mkdir -p .claude/skills/SKILL-NEV
 A SKILL.md tartalmazzon YAML frontmatter-t (name, description), majd szekciókat: Mikor használd, Eljárás, Buktatók, Ellenőrzés.
 
 ### Globális skill: csak javaslatként
-Ha a skill minden ágensnek hasznos, vagy egy meglévő globális skillt javítanál, írd meg a teljes SKILL.md-t piszkozatba, és küldd el. Ha a név már él, a javaslat csere: élesedéskor a régi változat mentésre kerül. Meglévő globális skill javításánál a mostani szövegből indulj (cat ${instanceSkillsDir()}/NEV/SKILL.md), és a TELJES javított szöveget küldd.
+Ha a skill minden ágensnek hasznos, vagy egy meglévő globális skillt javítanál, írd meg a teljes SKILL.md-t piszkozatba, és küldd el. Ha a név már él, a javaslat csere: élesedéskor a régi változat mentésre kerül. Meglévő globális skill javításánál a mostani szövegből indulj (cat $NESTOR_CLAUDE_HOME/skills/NEV/SKILL.md), és a TELJES javított szöveget küldd.
 
 ${strictAgent ? strictSkillProposeRecipe(strictAgent) : `mkdir -p .claude/skill-javaslat && cat > .claude/skill-javaslat/SKILL.md << 'SKILLEOF'
 (a teljes SKILL.md, ugyanazzal a szerkezettel, mint egy saját skillé)
@@ -5449,9 +5449,9 @@ TÖRLÉS NINCS, ÉS SZÁNDÉKOSAN NE IS LEGYEN. A DELETE /api/memories/:id léte
 
 ## Ütemezett feladatok
 
-Az ütemezett feladatok a ${instanceScheduledTasksDir()}/ mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
+Az ütemezett feladatok a $NESTOR_CLAUDE_HOME/scheduled-tasks/ mappában élnek, fájl-alapúak (SKILL.md + task-config.json). A schedule runner 60 másodpercenként ellenőrzi és a te tmux session-ödbe küldi a promptot.
 
-Ütemezést NEM hozhatsz létre, NEM módosíthatsz, NEM kapcsolhatsz ki/be és NEM törölhetsz magad: se az API-n (semmilyen klienssel: curl, python, node, wget...), se a ${instanceScheduledTasksDir()}/ mappa írásával, se az SQLite táblában. A governance-kapu (self-pace-gate) ezeket megtagadja${ownTokenSchedule}. Ha ütemezés kell, kérd ${BOT_NAME}-t (${MAIN_AGENT_ID}) inter-agent üzenetben ${helper ? R.scheduleAsk : '(a lenti, idézett heredoces alakban)'}: név, leírás, prompt, cron, ágens (AGENT_NAME), típus. Ő hozza létre vagy módosítja.
+Ütemezést NEM hozhatsz létre, NEM módosíthatsz, NEM kapcsolhatsz ki/be és NEM törölhetsz magad: se az API-n (semmilyen klienssel: curl, python, node, wget...), se a $NESTOR_CLAUDE_HOME/scheduled-tasks/ mappa írásával, se az SQLite táblában. A governance-kapu (self-pace-gate) ezeket megtagadja${ownTokenSchedule}. Ha ütemezés kell, kérd ${BOT_NAME}-t (${MAIN_AGENT_ID}) inter-agent üzenetben ${helper ? R.scheduleAsk : '(a lenti, idézett heredoces alakban)'}: név, leírás, prompt, cron, ágens (AGENT_NAME), típus. Ő hozza létre vagy módosítja.
 
 ${helper ? R.scheduleList : `Olvasni (listázni) szabad, PONTOSAN ebben az alakban:
 curl -q -s -H "Authorization: Bearer $(cat ${tokenPath})" ${dashboardOrigin}/api/schedules
@@ -5461,7 +5461,7 @@ A -q legyen az ELSŐ argumentum, a token útja SZÓ SZERINT ez az abszolút út 
 Típusok: task (mindig szól az eredménnyel) vagy heartbeat (csak fontosnál szól).
 Cron formátum: perc óra nap hónap hétnapja (pl. 0 8 * * * = minden nap 8:00).
 NE írd közvetlenül az SQLite scheduled_tasks táblát - az egy régi API.
-NE szerkeszd kézzel a ${instanceScheduledTasksDir()}/ fájljait: a runner csak az API-n át írt (regisztrált) feladatot indítja, egy kézzel létrehozott vagy módosított feladat NEM fut le.
+NE szerkeszd kézzel a $NESTOR_CLAUDE_HOME/scheduled-tasks/ fájljait: a runner csak az API-n át írt (regisztrált) feladatot indítja, egy kézzel létrehozott vagy módosított feladat NEM fut le.
 
 ${buildSkillSection(helper ? name : undefined, tokenPath)}
 

@@ -40,6 +40,20 @@ expect_refused "a relative path" "relative/home"
 ln -s "$HOME/.claude" "$T/sneaky"
 expect_refused "a link into the host ~/.claude" "$T/sneaky"
 
+# macOS: its realpath has no -m (Copilot on #18). With such a realpath first on PATH a link into the host must still be
+# refused, and a not-yet-existing home under a linked parent must still resolve through the link.
+mkdir -p "$T/bsd-bin"
+cat > "$T/bsd-bin/realpath" <<'EOF_RP'
+#!/bin/bash
+for a in "$@"; do case "$a" in -m|-e|-s|--*) echo "realpath: illegal option -- ${a#-}" >&2; exit 1 ;; esac; done
+exec /usr/bin/realpath "$@"
+EOF_RP
+chmod +x "$T/bsd-bin/realpath"
+if PATH="$T/bsd-bin:$PATH" NESTOR_CLAUDE_HOME="$T/sneaky" claude_home_path "$T/install" >/dev/null 2>&1; then fail "no realpath -m: a link into the host accepted"; else pass "no realpath -m: a link into the host refused"; fi
+if PATH="$T/bsd-bin:$PATH" NESTOR_CLAUDE_HOME="$T/sneaky/new-sub" claude_home_path "$T/install" >/dev/null 2>&1; then fail "no realpath -m: a new dir under a link into the host accepted"; else pass "no realpath -m: a new dir under a link into the host refused"; fi
+got="$(PATH="$T/bsd-bin:$PATH" NESTOR_CLAUDE_HOME="$T/plain/new-home" claude_home_path "$T/install" 2>/dev/null)"
+[ "$got" = "$T/plain/new-home" ] && pass "no realpath -m: a plain new home resolves" || fail "no realpath -m: a plain new home (got '$got')"
+
 # require: no dir -> 1, dir without marker -> 1, marked dir -> its path
 if claude_home_require "$T/install" >/dev/null 2>&1; then fail "require without a home"; else pass "require without a home refuses"; fi
 mkdir -p "$T/install/.claude-home"

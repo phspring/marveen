@@ -112,20 +112,15 @@ describe('ensureSkillsPathTrapSection', () => {
   // fell back to it) is gone. CLAUDE_CONFIG_DIR is always set, the body says so, names the install's own home, and
   // tells the reader the host ~/.claude is never used.
   it('says $CLAUDE_CONFIG_DIR is always set, names the instance home, and rules out the host ~/.claude', () => {
-    // The default home (<PROJECT_ROOT>/.claude-home, PROJECT_ROOT mocked to tmpRoot): the suite seam sets a scratch
-    // NESTOR_CLAUDE_HOME for every file, so this test takes it away for its own render and puts it back.
-    const seam = process.env.NESTOR_CLAUDE_HOME
-    delete process.env.NESTOR_CLAUDE_HOME
-    try {
     for (const [who, text] of [['sub', (setup('agent-b', '# B\n'), ensureSkillsPathTrapSection('agent-b'), read('agent-b'))],
                                ['main', (writeFileSync(join(tmpRoot, 'CLAUDE.md'), '# Main\n', 'utf-8'), ensureSkillsPathTrapSection('agent-a'), readFileSync(join(tmpRoot, 'CLAUDE.md'), 'utf-8'))]]) {
       expect({ who, always: text.includes('MINDIG be van állítva') }).toEqual({ who, always: true })
-      expect({ who, home: text.includes(join(tmpRoot, '.claude-home'))  /* PROJECT_ROOT is mocked to tmpRoot: the default home */ }).toEqual({ who, home: true })
+      // The home is named by its env var (exported to every agent), never as a machine path baked into the text
+      // (Copilot on #18: a resolved path is noise, makes the generated text host-specific, and could throw).
+      expect({ who, home: text.includes('`$NESTOR_CLAUDE_HOME`') && text.includes('`$NESTOR_CLAUDE_HOME/skills`') }).toEqual({ who, home: true })
+      expect({ who, noPath: text.includes(join(tmpRoot, '.claude-home')) }).toEqual({ who, noPath: false })
       expect({ who, never: text.includes('`~/.claude` mappáját ez a telepítés SOHA nem használja') }).toEqual({ who, never: true })
       expect({ who, fallback: text.includes('${CLAUDE_CONFIG_DIR:-$HOME/.claude}') }).toEqual({ who, fallback: false })
-    }
-    } finally {
-      if (seam !== undefined) process.env.NESTOR_CLAUDE_HOME = seam
     }
   })
 

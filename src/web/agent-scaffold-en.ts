@@ -1,4 +1,3 @@
-import { instanceClaudeHome, instanceScheduledTasksDir, instanceSkillsDir } from '../claude-home.js'
 // PERSONAESC1107 PR 2+3 (plan v2, section 2): the English bodies of the generated CLAUDE.md sections, for an install
 // whose AGENT_TEXT_LANG is `en` (src/web/agent-text-lang.ts). Every Hungarian builder in agent-scaffold.ts gets ONE
 // branch line that calls the function here; the Hungarian text itself is untouched.
@@ -313,7 +312,7 @@ export function buildSkillsPathTrapBodyEn(isMain: boolean): string {
     '```',
     '',
     '`$CLAUDE_CONFIG_DIR` is ALWAYS set: it is this install\'s OWN Claude home',
-    `(\`${instanceClaudeHome()}\`), or an isolated root of your own (a sub-agent\'s is`,
+    `(\`$NESTOR_CLAUDE_HOME\`), or an isolated root of your own (a sub-agent\'s is`,
     '`agents/<name>/.claude-config`, the main agent\'s is `<project-root>/.channels-config`).',
     'This install NEVER uses the host user\'s `~/.claude`: write nothing there and read',
     'nothing from it (other installs and the owner\'s own Claude use it). The root\'s NAME',
@@ -322,7 +321,7 @@ export function buildSkillsPathTrapBodyEn(isMain: boolean): string {
     'install\'s global skills folder (or to a folder built from the skill library when',
     'the agent runs in `composed` mode).',
     '',
-    `1. \`${instanceSkillsDir()}\` -- this install\'s global one. EVERY agent of this install`,
+    `1. \`$NESTOR_CLAUDE_HOME/skills\` -- this install\'s global one. EVERY agent of this install`,
     '   sees it (no other install does). Do NOT write here directly: a new global skill',
     '   or a fix to an existing one goes ONLY as a proposal (`POST /api/skills/propose`).',
     '   Whether it goes live at once (the scan and the audit run then too) or waits in',
@@ -683,7 +682,7 @@ You are a self-improving agent. You learn as you work, and you create reusable s
 
 ### Where skills live
 - Personal: the .claude/skills/ folder of your working directory. Only you see it; you write here directly.
-- Global: ${instanceSkillsDir()}/ (every agent sees it). Do NOT write here directly: a new global skill or a fix to an existing one goes only as a proposal (see below). Whether it goes live at once (the scan and the audit run then too) or waits in quarantine until the owner approves it is decided by the SKILL_QUARANTINE switch; the \`live\` field of the response tells you which one happened.
+- Global: $NESTOR_CLAUDE_HOME/skills/ (every agent sees it). Do NOT write here directly: a new global skill or a fix to an existing one goes only as a proposal (see below). Whether it goes live at once (the scan and the audit run then too) or waits in quarantine until the owner approves it is decided by the SKILL_QUARANTINE switch; the \`live\` field of the response tells you which one happened.
 - TRAP: .claude-config/skills is NOT yours -- it is the global folder through a symlink; your own skill goes under .claude/skills
 
 ### Automatic skill generation
@@ -693,7 +692,7 @@ mkdir -p .claude/skills/SKILL-NEV
 The SKILL.md has a YAML frontmatter (name, description), then sections: When to use, Procedure, Pitfalls, Verification.
 
 ### Global skill: only as a proposal
-If the skill is useful to every agent, or you would fix an existing global skill, write the full SKILL.md as a draft, and send it. If the name is already live, the proposal is a replacement: when it goes live, the old version is backed up. When fixing an existing global skill, start from its current text (cat ${instanceSkillsDir()}/NEV/SKILL.md), and send the WHOLE fixed text.
+If the skill is useful to every agent, or you would fix an existing global skill, write the full SKILL.md as a draft, and send it. If the name is already live, the proposal is a replacement: when it goes live, the old version is backed up. When fixing an existing global skill, start from its current text (cat $NESTOR_CLAUDE_HOME/skills/NEV/SKILL.md), and send the WHOLE fixed text.
 
 ${propose}
 
@@ -817,9 +816,9 @@ THERE IS NO DELETE, AND ON PURPOSE. DELETE /api/memories/:id exists, but deletin
 
 ## Scheduled tasks
 
-Scheduled tasks live in the ${instanceScheduledTasksDir()}/ folder, file-based (SKILL.md + task-config.json). The schedule runner checks them every 60 seconds and sends the prompt into your tmux session.
+Scheduled tasks live in the $NESTOR_CLAUDE_HOME/scheduled-tasks/ folder, file-based (SKILL.md + task-config.json). The schedule runner checks them every 60 seconds and sends the prompt into your tmux session.
 
-You can NOT create, change, switch off/on or delete a schedule yourself: not through the API (with no client: curl, python, node, wget...), not by writing the ${instanceScheduledTasksDir()}/ folder, not in the SQLite table. The governance gate (self-pace-gate) refuses these${ownTokenSchedule}. If you need a schedule, ask ${bot} (${main}) in an inter-agent message ${helper ? R.scheduleAsk : '(in the quoted heredoc form below)'}: name, description, prompt, cron, agent (AGENT_NAME), type. They create or change it.
+You can NOT create, change, switch off/on or delete a schedule yourself: not through the API (with no client: curl, python, node, wget...), not by writing the $NESTOR_CLAUDE_HOME/scheduled-tasks/ folder, not in the SQLite table. The governance gate (self-pace-gate) refuses these${ownTokenSchedule}. If you need a schedule, ask ${bot} (${main}) in an inter-agent message ${helper ? R.scheduleAsk : '(in the quoted heredoc form below)'}: name, description, prompt, cron, agent (AGENT_NAME), type. They create or change it.
 
 ${helper ? R.scheduleList : `Reading (listing) is allowed, in EXACTLY this form:
 curl -q -s -H "Authorization: Bearer $(cat ${tokenPath})" ${f.dashboardOrigin}/api/schedules
@@ -829,7 +828,7 @@ The -q must be the FIRST argument, the token path must be LITERALLY this absolut
 Types: task (always reports the result) or heartbeat (reports only when something matters).
 Cron format: minute hour day month weekday (e.g. 0 8 * * * = every day at 8:00).
 Do NOT write the SQLite scheduled_tasks table directly - that is an old API.
-Do NOT edit the files of ${instanceScheduledTasksDir()}/ by hand: the runner starts only a task written (registered) through the API, a task created or changed by hand does NOT run.
+Do NOT edit the files of $NESTOR_CLAUDE_HOME/scheduled-tasks/ by hand: the runner starts only a task written (registered) through the API, a task created or changed by hand does NOT run.
 
 ${skillSection}
 
